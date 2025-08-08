@@ -1,0 +1,21 @@
+{
+  "name": "cw",
+  "version": "1.0.0",
+  "description": "ustd/eth wallet",
+  "main": "cli.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "crypto",
+    "wallet",
+    "cli"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^14.0.0",
+    "dotenv": "^17.2.1",
+    "ethers": "^6.15.0"
+  }
+}
