@@ -9,6 +9,7 @@
     "prebuild": "npm run bundle:backend",
     "bundle:backend": "esbuild src/backend/main.ts --bundle --format=esm --platform=browser --target=es2022 --outfile=generated/backend/main.js",
     "build": "tinyjs build",
+    "postbuild": "node scripts/set-app-icon.mjs",
     "package:mac": "node scripts/package-macos.mjs"
   },
   "keywords": [

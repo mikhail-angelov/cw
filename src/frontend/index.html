@@ -11,7 +11,11 @@
 <body>
   <div class="phone-frame">
     <header class="app-header">
-      <span class="network-badge"><span class="network-dot"></span><span data-i18n="mainnet">Основная сеть</span></span>
+      <div class="header-left">
+        <button id="back-button" type="button" class="icon-btn" data-icon="back" data-i18n-title="back" title="Назад" hidden></button>
+        <span id="network-badge" class="network-badge"><span class="network-dot"></span><span data-i18n="mainnet">Основная сеть</span></span>
+        <span id="screen-title" class="screen-title" hidden></span>
+      </div>
       <div class="header-icons">
         <select id="language" aria-label="Language"><option value="ru">Русский</option><option value="en">English</option></select>
         <button id="receive-toggle" type="button" class="icon-btn" data-icon="qr" data-i18n-title="receive" title="Получить"></button>
@@ -94,15 +98,21 @@
 
     <!-- Screen: pay -->
     <section id="screen-pay" class="screen-content" hidden>
-      <div class="section-title" data-i18n="newPayment">Новый платёж</div>
       <p id="payment-state" class="muted section-intro"></p>
-      <form id="send-form" class="form-grid" hidden>
-        <label for="contact-select" data-i18n="contact">Контрагент</label><select id="contact-select"></select>
+      <form id="send-form" class="form-grid pay-form" hidden>
+        <label for="recipient" data-i18n="recipient">Адрес получателя</label>
+        <input id="recipient" list="recipient-options" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="0x…" required>
+        <datalist id="recipient-options"></datalist>
         <p id="selected-contact-info" class="contact-hint" hidden></p>
-        <label for="recipient" data-i18n="recipient">Адрес получателя</label><input id="recipient" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="0x…" required>
-        <label for="payment-token" data-i18n="token">Токен</label><select id="payment-token"><option value="USDT">USDT</option><option value="USDC">USDC</option></select>
-        <label for="amount" data-i18n="amount">Сумма USDT</label><input id="amount" inputmode="decimal" placeholder="0.00" required>
-        <label for="payment-description" data-i18n="paymentNote">Описание платежа (только здесь)</label><textarea id="payment-description" rows="2" maxlength="300" data-i18n-placeholder="paymentNoteExample" placeholder="Например, счёт за октябрь"></textarea>
+        <label for="recipient-name" data-i18n="recipientName">Имя (необязательно)</label>
+        <input id="recipient-name" maxlength="80" autocomplete="off" data-i18n-placeholder="recipientNameHint" placeholder="Например, Иван — добавится в контрагенты при отправке">
+        <label for="amount" data-i18n="amountGeneric">Сумма</label>
+        <div class="amount-row">
+          <input id="amount" inputmode="decimal" placeholder="0.00" required>
+          <select id="payment-token" aria-label="Token"><option value="USDT" selected>USDT · Ethereum</option><option value="USDC">USDC · Ethereum</option></select>
+        </div>
+        <label for="payment-description" data-i18n="paymentNote">Описание платежа (только здесь)</label>
+        <textarea id="payment-description" rows="2" maxlength="300" data-i18n-placeholder="paymentNoteExample" placeholder="Например, счёт за октябрь"></textarea>
         <p class="muted" data-i18n="asapNote">Отправка сразу после подтверждения. Пароль вводится вручную каждый раз.</p>
         <button type="submit" data-i18n="continuePayment">Продолжить</button>
       </form>
