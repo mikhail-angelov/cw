@@ -23,8 +23,8 @@ Object.assign(ru, { statusPartial:'Частично: проверьте полу
 Object.assign(en, { statusPartial:'Partial: check received token', bridgePartial:'Bridge partially completed; check the received token using the transaction hash' });
 Object.assign(ru, { totalBalance:'Общий баланс', stableNote:'Сумма USDT и USDC в обеих сетях, без ETH и TRX', assets:'Активы', actionSend:'Отправить', receive:'Получить', receiveTitle:'Получить на адрес', close:'Закрыть', getApprox:'Получите (примерно)', hideBalance:'Скрыть суммы', showBalance:'Показать суммы', tronAddressLabel:'TRON-адрес' });
 Object.assign(en, { totalBalance:'Total balance', stableNote:'Sum of USDT and USDC across both networks, excluding ETH and TRX', assets:'Assets', actionSend:'Send', receive:'Receive', receiveTitle:'Receive to address', close:'Close', getApprox:'You receive (estimated)', hideBalance:'Hide amounts', showBalance:'Show amounts', tronAddressLabel:'TRON address' });
-Object.assign(ru, { back:'Назад', recipientName:'Имя (необязательно)', recipientNameHint:'Например, Иван — добавится в контрагенты при отправке', amountGeneric:'Сумма' });
-Object.assign(en, { back:'Back', recipientName:'Name (optional)', recipientNameHint:'For example, Ivan — saved as a contact when sent', amountGeneric:'Amount' });
+Object.assign(ru, { back:'Назад', recipientName:'Имя (необязательно)', recipientNameHint:'Например, Иван — добавится в контрагенты при отправке', amountGeneric:'Сумма', actionPay:'Оплатить' });
+Object.assign(en, { back:'Back', recipientName:'Name (optional)', recipientNameHint:'For example, Ivan — saved as a contact when sent', amountGeneric:'Amount', actionPay:'Pay' });
 let lang = 'ru';
 try { lang = localStorage.getItem('cw-language') || (navigator.language.startsWith('ru') ? 'ru' : 'en'); } catch { lang = navigator.language.startsWith('ru') ? 'ru' : 'en'; }
 const t = (key) => (lang === 'en' ? en : ru)[key] || key;
@@ -160,7 +160,7 @@ $('refresh-balance').addEventListener('click', () => run(async () => { const res
 $('copy-address').addEventListener('click', () => run(async () => { await call('copyWalletAddress', { walletAddress: activeAddress() }); message(t('addressCopied')); }));
 $('copy-tron-address').addEventListener('click', () => run(async () => { await call('copyTronAddress', { walletAddress: activeAddress() }); message(t('addressCopied')); }));
 function openReceive() { $('receive-eth').textContent = activeAddress() || ''; $('receive-tron').textContent = state?.tronAddress || ''; $('receive-dialog').showModal(); }
-$('action-receive').addEventListener('click', openReceive);
+$('balance-receive').addEventListener('click', openReceive);
 $('receive-toggle').addEventListener('click', openReceive);
 $('receive-close').addEventListener('click', () => $('receive-dialog').close());
 $('eye-toggle').addEventListener('click', () => { const hidden = document.body.classList.toggle('privacy'); setIcon($('eye-toggle'), hidden ? 'eye-slash' : 'eye'); $('eye-toggle').title = t(hidden ? 'showBalance' : 'hideBalance'); });
@@ -187,7 +187,7 @@ function showScreen(name) {
   $('back-button').hidden = main;
   $('screen-title').hidden = main;
   $('network-badge').hidden = !main;
-  $('screen-title').textContent = { pay:t('actionSend'), swap:t('swap'), history:t('history'), settings:t('settings') }[name] || '';
+  $('screen-title').textContent = { pay:t('actionPay'), swap:t('swap'), history:t('history'), settings:t('settings') }[name] || '';
   if (name === 'pay') {
     loadContacts().catch((error) => message(errorText(error), true));
     const who = activeAddress();

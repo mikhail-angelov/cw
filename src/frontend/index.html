@@ -46,15 +46,14 @@
           <span data-i18n="totalBalance">Общий баланс</span>
           <button id="eye-toggle" type="button" class="eye-btn" data-icon="eye" data-i18n-title="hideBalance" title="Скрыть суммы"></button>
         </div>
-        <div id="total-balance" class="balance-amount maskable">—</div>
+        <div class="balance-row">
+          <div id="total-balance" class="balance-amount maskable">—</div>
+          <div class="balance-actions">
+            <button type="button" class="balance-btn" data-screen="pay" data-icon="arrow-up"><span class="button-label" data-i18n="actionPay">Оплатить</span></button>
+            <button type="button" class="balance-btn" id="balance-receive" data-icon="arrow-down"><span class="button-label" data-i18n="receive">Получить</span></button>
+          </div>
+        </div>
         <p class="balance-note" data-i18n="stableNote">Сумма USDT и USDC в обеих сетях, без ETH и TRX</p>
-      </div>
-
-      <div class="actions-grid">
-        <button type="button" class="action-item" data-screen="pay"><span class="action-circle" data-icon="arrow-up"></span><span class="button-label" data-i18n="actionSend">Отправить</span></button>
-        <button type="button" class="action-item" id="action-receive"><span class="action-circle" data-icon="arrow-down"></span><span class="button-label" data-i18n="receive">Получить</span></button>
-        <button type="button" class="action-item" data-screen="swap"><span class="action-circle" data-icon="swap"></span><span class="button-label" data-i18n="swap">Обмен</span></button>
-        <button type="button" class="action-item" data-screen="history"><span class="action-circle" data-icon="clock"></span><span class="button-label" data-i18n="history">История</span></button>
       </div>
 
       <div id="empty-state" class="empty-state" data-i18n="addFirstWallet">Добавьте публичный адрес или создайте кошелёк.</div>
@@ -180,6 +179,7 @@
 
     <nav class="bottom-nav" aria-label="Sections">
       <button type="button" class="nav-item active" data-screen="wallet" data-icon="wallet"><span class="button-label" data-i18n="wallet">Кошелёк</span></button>
+      <button type="button" class="nav-item" data-screen="pay" data-icon="arrow-up"><span class="button-label" data-i18n="actionPay">Оплатить</span></button>
       <button type="button" class="nav-item" data-screen="swap" data-icon="swap"><span class="button-label" data-i18n="swap">Обмен</span></button>
       <button type="button" class="nav-item" data-screen="history" data-icon="clock"><span class="button-label" data-i18n="history">История</span></button>
       <button type="button" class="nav-item" data-screen="settings" data-icon="gear"><span class="button-label" data-i18n="settings">Настройки</span></button>
