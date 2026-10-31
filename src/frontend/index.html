@@ -9,38 +9,93 @@
   <script src="app.js" defer></script>
 </head>
 <body>
-  <header class="app-header">
-    <div class="brand"><span class="brand-mark" aria-hidden="true">CW</span><div><strong>CW Wallet</strong><small>Ethereum mainnet</small></div></div>
-    <div class="header-tools"><span class="network" data-i18n="mainnet">Основная сеть</span><select id="language" aria-label="Language"><option value="ru">Русский</option><option value="en">English</option></select></div>
-  </header>
-  <main>
-    <p id="message" class="notice" role="status" aria-live="polite" hidden></p>
-    <section class="panel wallet-bar" aria-label="Wallets">
-      <div class="wallet-picker"><label for="wallet-select" data-i18n="wallet">Кошелёк</label><select id="wallet-select"></select><button id="copy-address" type="button" class="secondary" data-i18n="copyAddress">Копировать адрес</button><button id="add-wallet-toggle" type="button" class="secondary" data-i18n="addWallet">Добавить</button></div>
-      <p id="active-address" class="mono muted"></p>
-      <form id="wallet-form" class="inline-form" hidden>
-        <input id="wallet-label" maxlength="50" autocomplete="off" data-i18n-placeholder="walletName" placeholder="Название (необязательно)">
-        <input id="wallet-address" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="0x…" required>
-        <button type="submit" data-i18n="saveWallet">Сохранить адрес</button>
-        <button id="cancel-wallet" type="button" class="secondary" data-i18n="cancel">Отмена</button>
-      </form>
-    </section>
+  <div class="phone-frame">
+    <header class="app-header">
+      <span class="network-badge"><span class="network-dot"></span><span data-i18n="mainnet">Основная сеть</span></span>
+      <div class="header-icons">
+        <select id="language" aria-label="Language"><option value="ru">Русский</option><option value="en">English</option></select>
+        <button id="receive-toggle" type="button" class="icon-btn" data-icon="qr" data-i18n-title="receive" title="Получить"></button>
+        <button id="refresh-balance" type="button" class="icon-btn" data-icon="refresh" data-i18n-title="refresh" title="Обновить"></button>
+      </div>
+    </header>
 
-    <section class="panel overview" aria-labelledby="overview-title">
-      <div class="overview-head"><div><p class="eyebrow" data-i18n="overview">ОБЗОР</p><h1 id="overview-title" data-i18n="balances">Баланс</h1></div><button id="refresh-balance" type="button" class="secondary" data-i18n="refresh">Обновить</button></div>
+    <p id="message" class="notice" role="status" aria-live="polite" hidden></p>
+
+    <!-- Screen: wallet -->
+    <section id="screen-wallet" class="screen-content active" aria-label="Wallet">
+      <div class="wallet-bar">
+        <div class="wallet-picker">
+          <select id="wallet-select" aria-label="Wallet"></select>
+          <button id="add-wallet-toggle" type="button" class="icon-btn" data-icon="plus" data-i18n-title="addWallet" title="Добавить"></button>
+        </div>
+        <span id="active-address" class="mono"></span>
+        <form id="wallet-form" class="inline-form" hidden>
+          <input id="wallet-label" maxlength="50" autocomplete="off" data-i18n-placeholder="walletName" placeholder="Название (необязательно)">
+          <input id="wallet-address" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="0x…" required>
+          <button type="submit" data-i18n="saveWallet">Сохранить адрес</button>
+          <button id="cancel-wallet" type="button" class="secondary" data-i18n="cancel">Отмена</button>
+        </form>
+      </div>
+
+      <div class="balance-section">
+        <div class="balance-title">
+          <span data-i18n="totalBalance">Общий баланс</span>
+          <button id="eye-toggle" type="button" class="eye-btn" data-icon="eye" data-i18n-title="hideBalance" title="Скрыть суммы"></button>
+        </div>
+        <div id="total-balance" class="balance-amount maskable">—</div>
+        <p class="balance-note" data-i18n="stableNote">Сумма USDT и USDC в обеих сетях, без ETH и TRX</p>
+      </div>
+
+      <div class="actions-grid">
+        <button type="button" class="action-item" data-screen="pay"><span class="action-circle" data-icon="arrow-up"></span><span class="button-label" data-i18n="actionSend">Отправить</span></button>
+        <button type="button" class="action-item" id="action-receive"><span class="action-circle" data-icon="arrow-down"></span><span class="button-label" data-i18n="receive">Получить</span></button>
+        <button type="button" class="action-item" data-screen="swap"><span class="action-circle" data-icon="swap"></span><span class="button-label" data-i18n="swap">Обмен</span></button>
+        <button type="button" class="action-item" data-screen="history"><span class="action-circle" data-icon="clock"></span><span class="button-label" data-i18n="history">История</span></button>
+      </div>
+
       <div id="empty-state" class="empty-state" data-i18n="addFirstWallet">Добавьте публичный адрес или создайте кошелёк.</div>
       <div id="balance-content" hidden>
-        <div class="balances"><div class="balance-card"><span>Ethereum</span><strong id="inspect-eth">—</strong><small>ETH</small></div><div class="balance-card"><span>Tether</span><strong id="inspect-usdt">—</strong><small>USDT</small></div><div class="balance-card"><span>USD Coin</span><strong id="inspect-usdc">—</strong><small>USDC</small></div></div>
-        <div class="tron-strip"><div><strong>TRON</strong><span id="tron-address" class="mono"></span><button id="copy-tron-address" type="button" class="text-button" data-i18n="copyAddress">Копировать адрес</button></div><div class="tron-amounts"><span><b id="inspect-trx">—</b> TRX</span><span><b id="inspect-tron-usdt">—</b> USDT TRC-20</span></div></div>
+        <div class="section-title"><span data-i18n="assets">Активы</span></div>
+        <div class="token-list">
+          <div class="token-card">
+            <div class="token-info"><span class="token-icon eth-bg">Ξ</span><div><div class="token-name">Ethereum</div><div class="token-sub">ETH · ERC-20</div></div></div>
+            <div class="token-prices"><div id="inspect-eth" class="token-amount maskable">—</div><div class="token-fiat">Ethereum</div></div>
+          </div>
+          <div class="token-card">
+            <div class="token-info"><span class="token-icon usdt-bg">₮</span><div><div class="token-name">Tether</div><div class="token-sub">USDT · ERC-20</div></div></div>
+            <div class="token-prices"><div id="inspect-usdt" class="token-amount maskable">—</div><div class="token-fiat">Ethereum</div></div>
+          </div>
+          <div class="token-card">
+            <div class="token-info"><span class="token-icon usdc-bg">$</span><div><div class="token-name">USD Coin</div><div class="token-sub">USDC · ERC-20</div></div></div>
+            <div class="token-prices"><div id="inspect-usdc" class="token-amount maskable">—</div><div class="token-fiat">Ethereum</div></div>
+          </div>
+          <div class="token-card">
+            <div class="token-info"><span class="token-icon trx-bg">T</span><div><div class="token-name">TRON</div><div class="token-sub">TRX</div></div></div>
+            <div class="token-prices"><div id="inspect-trx" class="token-amount maskable">—</div><div class="token-fiat">TRON</div></div>
+          </div>
+          <div class="token-card">
+            <div class="token-info"><span class="token-icon usdt-bg">₮</span><div><div class="token-name">Tether</div><div class="token-sub">USDT · TRC-20</div></div></div>
+            <div class="token-prices"><div id="inspect-tron-usdt" class="token-amount maskable">—</div><div class="token-fiat">TRON</div></div>
+          </div>
+          <div class="token-card">
+            <div class="tron-card-body">
+              <div class="token-sub"><span data-i18n="tronAddressLabel">TRON-адрес</span></div>
+              <span id="tron-address" class="mono"></span>
+              <button id="copy-tron-address" type="button" class="text-button" data-i18n="copyAddress">Копировать адрес</button>
+            </div>
+          </div>
+        </div>
         <p id="tron-warning" class="data-warning" hidden></p>
-        <p id="updated-at" class="muted updated-at"></p><p id="data-warning" class="data-warning" hidden></p>
+        <p id="updated-at" class="muted updated-at"></p>
+        <p id="data-warning" class="data-warning" hidden></p>
       </div>
+      <footer>Ethereum mainnet · TRON mainnet</footer>
     </section>
 
-    <nav class="action-bar" aria-label="Sections"><button id="tab-pay" type="button" data-tab="pay" class="secondary" data-i18n="pay">Платёж</button><button id="tab-swap" type="button" data-tab="swap" class="secondary" data-i18n="swap">Обмен</button><button id="tab-history" type="button" data-tab="history" class="secondary" data-i18n="history">История</button><button id="tab-settings" type="button" data-tab="settings" class="secondary" data-i18n="settings">Настройки</button></nav>
-
-    <section id="pay-panel" class="panel section-panel" hidden>
-      <h2 data-i18n="newPayment">Новый платёж</h2><p id="payment-state" class="muted section-intro"></p>
+    <!-- Screen: pay -->
+    <section id="screen-pay" class="screen-content" hidden>
+      <div class="section-title" data-i18n="newPayment">Новый платёж</div>
+      <p id="payment-state" class="muted section-intro"></p>
       <form id="send-form" class="form-grid" hidden>
         <label for="contact-select" data-i18n="contact">Контрагент</label><select id="contact-select"></select>
         <p id="selected-contact-info" class="contact-hint" hidden></p>
@@ -58,40 +113,76 @@
       </details>
     </section>
 
-    <section id="swap-panel" class="panel section-panel" hidden>
-      <h2 data-i18n="swapTitle">Обмен USDT ↔ USDC</h2><p id="swap-state" class="muted section-intro"></p>
-      <form id="swap-form" class="form-grid" hidden>
-        <label for="swap-token" data-i18n="giveToken">Отдать</label><select id="swap-token"><option value="USDT">USDT → USDC</option><option value="USDC">USDC → USDT</option></select>
-        <label for="swap-amount" data-i18n="swapAmount">Сумма обмена</label><input id="swap-amount" inputmode="decimal" placeholder="0.00" required>
-        <p class="muted" data-i18n="swapExplainer">Прямой пул Uniswap v3 в Ethereum mainnet. Для разрешения и обмена нужен ETH на комиссии.</p>
-        <button id="quote-swap" type="submit" data-i18n="getQuote">Получить котировку</button>
+    <!-- Screen: swap -->
+    <section id="screen-swap" class="screen-content" hidden>
+      <div class="section-title" data-i18n="swapTitle">Обмен USDT ↔ USDC</div>
+      <p id="swap-state" class="muted section-intro"></p>
+      <form id="swap-form" hidden>
+        <div class="swap-box">
+          <div class="swap-input-group">
+            <div class="swap-label-row"><span data-i18n="giveToken">Отдать</span><span id="swap-balance" class="maskable"></span></div>
+            <div class="swap-control-row">
+              <input id="swap-amount" class="swap-input" inputmode="decimal" placeholder="0.00" required>
+              <select id="swap-token" aria-label="Token"><option value="USDT">USDT → USDC</option><option value="USDC">USDC → USDT</option></select>
+            </div>
+          </div>
+          <div class="swap-arrow-row"><span class="swap-arrow-btn" data-icon="arrow-down"></span></div>
+          <button id="quote-swap" type="submit" class="swap-btn" data-i18n="getQuote">Получить котировку</button>
+          <div id="swap-preview" class="swap-input-group" hidden>
+            <div class="swap-label-row"><span data-i18n="getApprox">Получите (примерно)</span></div>
+            <strong id="swap-preview-output" class="swap-preview-output"></strong>
+            <p id="swap-preview-details"></p>
+            <button id="swap-continue" type="button" data-i18n="continueToPassword">Продолжить к паролю</button>
+          </div>
+        </div>
       </form>
-      <div id="swap-preview" class="swap-preview" hidden><strong id="swap-preview-output"></strong><p id="swap-preview-details" class="muted"></p><button id="swap-continue" type="button" data-i18n="continueToPassword">Продолжить к паролю</button></div>
-      <details class="subsection" open><summary data-i18n="bridgeTitle">USDT между Ethereum и TRON</summary><p id="bridge-state" class="muted"></p><p class="muted" data-i18n="bridgeExplainer">Котировка показывает сумму после комиссий маршрута. ETH или TRX для сети и возможного разрешения списания оплачиваются отдельно.</p><form id="bridge-form" class="form-grid" hidden><label for="bridge-direction" data-i18n="bridgeDirection">Направление</label><select id="bridge-direction"><option value="ETH_TO_TRON">Ethereum → TRON</option><option value="TRON_TO_ETH">TRON → Ethereum</option></select><label for="bridge-amount" data-i18n="bridgeAmount">Сумма USDT</label><input id="bridge-amount" inputmode="decimal" placeholder="0.00" required><button type="submit" data-i18n="getBridgeQuote">Получить маршрут</button></form><div id="bridge-preview" class="swap-preview" hidden><strong id="bridge-preview-output"></strong><p id="bridge-preview-details" class="muted"></p><button id="bridge-continue" type="button" data-i18n="continueToPassword">Продолжить к паролю</button></div></details>
+      <details class="subsection" open><summary data-i18n="bridgeTitle">USDT между Ethereum и TRON</summary><p id="bridge-state" class="muted"></p><p class="muted" data-i18n="bridgeExplainer">Котировка показывает сумму после комиссий маршрута. ETH или TRX для сети и возможного разрешения списания оплачиваются отдельно.</p><form id="bridge-form" class="form-grid" hidden><label for="bridge-direction" data-i18n="bridgeDirection">Направление</label><select id="bridge-direction"><option value="ETH_TO_TRON">Ethereum → TRON</option><option value="TRON_TO_ETH">TRON → Ethereum</option></select><label for="bridge-amount" data-i18n="bridgeAmount">Сумма USDT</label><input id="bridge-amount" inputmode="decimal" placeholder="0.00" required><button type="submit" data-i18n="getBridgeQuote">Получить маршрут</button></form><div id="bridge-preview" class="swap-box" hidden><strong id="bridge-preview-output" class="swap-preview-output"></strong><p id="bridge-preview-details" class="muted"></p><button id="bridge-continue" type="button" data-i18n="continueToPassword">Продолжить к паролю</button></div></details>
     </section>
 
-    <section id="history-panel" class="panel section-panel" hidden>
-      <div class="section-head"><div><h2 data-i18n="history">История</h2><p class="muted" data-i18n="historyOnDemand">История загружается только по кнопке.</p></div><button id="load-history" type="button" class="secondary" data-i18n="loadHistory">Загрузить историю</button></div>
-      <div id="history-content" hidden><h3 data-i18n="tokenTransfers">Переводы USDT и USDC</h3><div id="inspect-transfers"></div><p class="safety-note" data-i18n="historyWarning">Перед платежом сверяйте адрес получателя целиком: мелкие входящие переводы могут подменять адреса в истории.</p><h3 data-i18n="myPayments">Мои операции</h3><div id="payment-history"></div><h3 data-i18n="bridgeHistory">Межсетевые переводы</h3><div id="bridge-history"></div></div>
-      <details class="subsection"><summary data-i18n="checkTransaction">Проверить транзакцию по хешу</summary><form id="status-form" class="inline-form"><input id="tx-hash" autocomplete="off" spellcheck="false" placeholder="0x…" required><button type="submit" data-i18n="checkStatus">Проверить статус</button></form><p id="tx-result" class="muted"></p></details>
+    <!-- Screen: history -->
+    <section id="screen-history" class="screen-content" hidden>
+      <div class="section-title"><span data-i18n="history">История</span><button id="load-history" type="button" class="secondary" data-i18n="loadHistory">Загрузить историю</button></div>
+      <p class="muted" data-i18n="historyOnDemand">История загружается только по кнопке.</p>
+      <div id="history-content" hidden>
+        <h3 class="history-subhead" data-i18n="tokenTransfers">Переводы USDT и USDC</h3><div id="inspect-transfers" class="history-list"></div>
+        <p class="safety-note" data-i18n="historyWarning">Перед платежом сверяйте адрес получателя целиком: мелкие входящие переводы могут подменять адреса в истории.</p>
+        <h3 class="history-subhead" data-i18n="myPayments">Мои операции</h3><div id="payment-history" class="history-list"></div>
+        <h3 class="history-subhead" data-i18n="bridgeHistory">Межсетевые переводы</h3><div id="bridge-history" class="history-list"></div>
+      </div>
+      <details class="subsection"><summary data-i18n="checkTransaction">Проверить транзакцию по хешу</summary><form id="status-form" class="inline-form"><input id="tx-hash" autocomplete="off" spellcheck="false" placeholder="0x…" required><button type="submit" class="secondary" data-i18n="checkStatus">Проверить статус</button></form><p id="tx-result" class="muted"></p></details>
     </section>
 
-    <section id="settings-panel" class="panel section-panel" hidden>
-      <h2 data-i18n="settings">Настройки</h2><p id="key-state" class="muted section-intro"></p><p class="settings-guide" data-i18n="settingsGuide">Для просмотра балансов ничего вводить не нужно. Чтобы отправлять или обменивать токены, добавьте свой приватный ключ либо создайте новый кошелёк и придумайте пароль платежа от 12 символов. Это новый пароль приложения: он шифрует ключ, вводится вручную при каждой операции и не восстанавливается.</p>
+    <!-- Screen: settings -->
+    <section id="screen-settings" class="screen-content" hidden>
+      <div class="section-title" data-i18n="settings">Настройки</div>
+      <p id="key-state" class="muted section-intro"></p>
+      <p class="settings-guide" data-i18n="settingsGuide">Для просмотра балансов ничего вводить не нужно. Чтобы отправлять или обменивать токены, добавьте свой приватный ключ либо создайте новый кошелёк и придумайте пароль платежа от 12 символов. Это новый пароль приложения: он шифрует ключ, вводится вручную при каждой операции и не восстанавливается.</p>
       <details id="key-setup" class="subsection"><summary data-i18n="importKey">Добавить ключ подписи</summary><p class="muted" data-i18n="keyExplainer">Введите приватный ключ выбранного кошелька (0x…). Он нужен только для отправки и обмена и хранится зашифрованным в macOS Keychain. Никому не сообщайте ключ и пароль.</p>
         <form id="import-form" class="form-grid"><label for="private-key" data-i18n="privateKey">Приватный ключ</label><input id="private-key" type="password" autocomplete="off" spellcheck="false" placeholder="0x…" required><label for="import-password" data-i18n="newPassword">Новый пароль платежа</label><input id="import-password" type="password" minlength="12" autocomplete="new-password" required><label for="import-password-confirm" data-i18n="repeatPassword">Повторите пароль</label><input id="import-password-confirm" type="password" minlength="12" autocomplete="new-password" required><button type="submit" data-i18n="importKey">Добавить ключ подписи</button></form>
         <details class="subsection inner"><summary data-i18n="importCwg">Импорт из cwg</summary><p class="muted" data-i18n="cwgHelp">Только если у вас есть wallet_key из cwg: введите старый пароль cwg, затем придумайте новый пароль для этого приложения.</p><form id="cwg-form" class="form-grid"><label for="cwg-key">wallet_key</label><textarea id="cwg-key" rows="2" spellcheck="false" required></textarea><label for="cwg-password" data-i18n="cwgPassword">Пароль cwg</label><input id="cwg-password" type="password" autocomplete="off" required><label for="cwg-new-password" data-i18n="newPassword">Новый пароль платежа</label><input id="cwg-new-password" type="password" minlength="12" autocomplete="new-password" required><label for="cwg-new-password-confirm" data-i18n="repeatPassword">Повторите пароль</label><input id="cwg-new-password-confirm" type="password" minlength="12" autocomplete="new-password" required><button type="submit" data-i18n="importCwg">Импорт из cwg</button></form></details>
       </details>
       <details class="subsection"><summary data-i18n="createWallet">Создать кошелёк</summary><p class="muted" data-i18n="backupNote">Создаётся новый ключ и новые адреса Ethereum и TRON. Приложение покажет ключ один раз для резервной копии. Сохраните его вне приложения.</p><form id="create-form" class="form-grid"><label for="create-password" data-i18n="newPassword">Новый пароль платежа</label><input id="create-password" type="password" minlength="12" autocomplete="new-password" required><label for="create-password-confirm" data-i18n="repeatPassword">Повторите пароль</label><input id="create-password-confirm" type="password" minlength="12" autocomplete="new-password" required><button type="submit" data-i18n="createWallet">Создать кошелёк</button></form></details>
-      <section id="backup" class="backup" hidden><h3 data-i18n="saveBackup">Сохраните резервную копию</h3><p data-i18n="backupWarning">Без резервной копии ключ нельзя восстановить после потери Keychain.</p><textarea id="backup-key" rows="2" readonly spellcheck="false"></textarea><button id="hide-backup" type="button" data-i18n="savedBackup">Я сохранил ключ</button></section>
+      <section id="backup" class="backup" hidden><h3 data-i18n="saveBackup">Сохраните резервную копию</h3><p data-i18n="backupWarning">Без резервной копии ключ нельзя восстановить после потери Keychain.</p><textarea id="backup-key" rows="2" readonly spellcheck="false"></textarea><button id="hide-backup" type="button" class="secondary" data-i18n="savedBackup">Я сохранил ключ</button></section>
       <section id="legacy-setup" class="subsection" hidden><h3 data-i18n="protectOldKey">Защитить старый ключ</h3><form id="legacy-form" class="form-grid"><label for="legacy-password" data-i18n="newPassword">Новый пароль платежа</label><input id="legacy-password" type="password" minlength="12" autocomplete="new-password" required><label for="legacy-password-confirm" data-i18n="repeatPassword">Повторите пароль</label><input id="legacy-password-confirm" type="password" minlength="12" autocomplete="new-password" required><button type="submit" data-i18n="protectOldKey">Защитить старый ключ</button></form></section>
-      <details class="subsection"><summary data-i18n="networkSettings">Личный RPC (необязательно)</summary><p id="infura-state" class="muted"></p><p class="muted" data-i18n="infuraHelp">Приложение работает через публичный Ethereum RPC без настройки. Если нужен личный сервер, создайте проект Ethereum Mainnet на infura.io и вставьте его Project ID. Нужен именно ID, не URL и не пароль кошелька.</p><form id="infura-form" class="inline-form"><input id="infura-key" type="password" autocomplete="off" data-i18n-placeholder="infuraPlaceholder" placeholder="Infura Project ID" required><button type="submit" data-i18n="saveApiKey">Сохранить Project ID</button></form></details>
+      <details class="subsection"><summary data-i18n="networkSettings">Личный RPC (необязательно)</summary><p id="infura-state" class="muted"></p><p class="muted" data-i18n="infuraHelp">Приложение работает через публичный Ethereum RPC без настройки. Если нужен личный сервер, создайте проект Ethereum Mainnet на infura.io и вставьте его Project ID. Нужен именно ID, не URL и не пароль кошелька.</p><form id="infura-form" class="inline-form"><input id="infura-key" type="password" autocomplete="off" data-i18n-placeholder="infuraPlaceholder" placeholder="Infura Project ID" required><button type="submit" class="secondary" data-i18n="saveApiKey">Сохранить Project ID</button></form></details>
       <div class="settings-actions"><button id="copy-private-key" type="button" class="text-button" hidden data-i18n="copySecret">Копировать приватный ключ</button><button id="delete-wallet" type="button" class="text-button danger" hidden data-i18n="deleteKey">Удалить ключ подписи</button><button id="remove-wallet" type="button" class="text-button danger" hidden data-i18n="removeWallet">Удалить адрес из списка</button></div>
     </section>
 
-    <dialog id="payment-password-dialog" aria-labelledby="payment-dialog-title"><form id="payment-password-form" autocomplete="off"><p class="eyebrow" data-i18n="confirmPayment">ПОДТВЕРЖДЕНИЕ ПЛАТЕЖА</p><h2 id="payment-dialog-title" data-i18n="enterPassword">Введите пароль платежа</h2><p id="payment-dialog-summary" class="modal-summary"></p><label for="payment-password" data-i18n="manualPassword">Пароль вводится вручную каждый раз</label><input id="payment-password" type="password" autocomplete="off" spellcheck="false" required><p id="payment-password-error" class="field-error" role="alert"></p><div class="modal-actions"><button id="cancel-payment" type="button" class="secondary" data-i18n="cancel">Отмена</button><button id="confirm-payment-button" type="submit" data-i18n="checkFee">Проверить комиссию</button></div></form></dialog>
-    <dialog id="secret-dialog" aria-labelledby="secret-dialog-title"><form id="secret-form" autocomplete="off"><h2 id="secret-dialog-title" data-i18n="copySecret">Копировать приватный ключ</h2><p class="safety-note" data-i18n="secretWarning">Любой, у кого есть ключ, может потратить все средства. Буфер обмена может синхронизироваться с другими устройствами.</p><label for="secret-password" data-i18n="enterPassword">Введите пароль платежа</label><input id="secret-password" type="password" autocomplete="off" spellcheck="false" required><p id="secret-error" class="field-error" role="alert"></p><div class="modal-actions"><button id="cancel-secret" type="button" class="secondary" data-i18n="cancel">Отмена</button><button id="confirm-secret" type="submit" data-i18n="copySecret">Копировать приватный ключ</button></div></form></dialog>
-    <footer>Ethereum mainnet · TRON mainnet</footer>
-  </main>
+    <nav class="bottom-nav" aria-label="Sections">
+      <button type="button" class="nav-item active" data-screen="wallet" data-icon="wallet"><span class="button-label" data-i18n="wallet">Кошелёк</span></button>
+      <button type="button" class="nav-item" data-screen="swap" data-icon="swap"><span class="button-label" data-i18n="swap">Обмен</span></button>
+      <button type="button" class="nav-item" data-screen="history" data-icon="clock"><span class="button-label" data-i18n="history">История</span></button>
+      <button type="button" class="nav-item" data-screen="settings" data-icon="gear"><span class="button-label" data-i18n="settings">Настройки</span></button>
+    </nav>
+  </div>
+
+  <dialog id="receive-dialog" aria-labelledby="receive-title">
+    <div class="receive-head"><h2 id="receive-title" data-i18n="receiveTitle">Получить на адрес</h2><button id="receive-close" type="button" class="secondary" data-i18n="close">Закрыть</button></div>
+    <div class="receive-address"><strong>Ethereum</strong><span id="receive-eth" class="mono"></span><button id="copy-address" type="button" class="text-button" data-i18n="copyAddress">Копировать адрес</button></div>
+    <div class="receive-address"><strong>TRON</strong><span id="receive-tron" class="mono"></span><button id="copy-tron-address" type="button" class="text-button" data-i18n="copyAddress">Копировать адрес</button></div>
+  </dialog>
+
+  <dialog id="payment-password-dialog" aria-labelledby="payment-dialog-title"><form id="payment-password-form" autocomplete="off"><p class="eyebrow" data-i18n="confirmPayment">ПОДТВЕРЖДЕНИЕ ПЛАТЕЖА</p><h2 id="payment-dialog-title" data-i18n="enterPassword">Введите пароль платежа</h2><p id="payment-dialog-summary" class="modal-summary"></p><label for="payment-password" data-i18n="manualPassword">Пароль вводится вручную каждый раз</label><input id="payment-password" type="password" autocomplete="off" spellcheck="false" required><p id="payment-password-error" class="field-error" role="alert"></p><div class="modal-actions"><button id="cancel-payment" type="button" class="secondary" data-i18n="cancel">Отмена</button><button id="confirm-payment-button" type="submit" data-i18n="checkFee">Проверить комиссию</button></div></form></dialog>
+  <dialog id="secret-dialog" aria-labelledby="secret-dialog-title"><form id="secret-form" autocomplete="off"><h2 id="secret-dialog-title" data-i18n="copySecret">Копировать приватный ключ</h2><p class="safety-note" data-i18n="secretWarning">Любой, у кого есть ключ, может потратить все средства. Буфер обмена может синхронизироваться с другими устройствами.</p><label for="secret-password" data-i18n="enterPassword">Введите пароль платежа</label><input id="secret-password" type="password" autocomplete="off" spellcheck="false" required><p id="secret-error" class="field-error" role="alert"></p><div class="modal-actions"><button id="cancel-secret" type="button" class="secondary" data-i18n="cancel">Отмена</button><button id="confirm-secret" type="submit" data-i18n="copySecret">Копировать приватный ключ</button></div></form></dialog>
 </body>
 </html>

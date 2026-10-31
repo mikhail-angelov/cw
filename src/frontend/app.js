@@ -21,51 +21,49 @@ Object.assign(ru, { cwgHelp:'Только если у вас есть wallet_key
 Object.assign(en, { cwgHelp:'Only if you have a wallet_key from cwg: enter your old cwg password, then choose a new password for this app.', backupNote:'A new key creates new Ethereum and TRON addresses. The app shows the key once for backup. Store it outside the app.' });
 Object.assign(ru, { statusPartial:'Частично: проверьте полученный токен', bridgePartial:'Перенос выполнен частично; проверьте полученный токен по хешу' });
 Object.assign(en, { statusPartial:'Partial: check received token', bridgePartial:'Bridge partially completed; check the received token using the transaction hash' });
+Object.assign(ru, { totalBalance:'Общий баланс', stableNote:'Сумма USDT и USDC в обеих сетях, без ETH и TRX', assets:'Активы', actionSend:'Отправить', receive:'Получить', receiveTitle:'Получить на адрес', close:'Закрыть', getApprox:'Получите (примерно)', hideBalance:'Скрыть суммы', showBalance:'Показать суммы', tronAddressLabel:'TRON-адрес' });
+Object.assign(en, { totalBalance:'Total balance', stableNote:'Sum of USDT and USDC across both networks, excluding ETH and TRX', assets:'Assets', actionSend:'Send', receive:'Receive', receiveTitle:'Receive to address', close:'Close', getApprox:'You receive (estimated)', hideBalance:'Hide amounts', showBalance:'Show amounts', tronAddressLabel:'TRON address' });
 let lang = 'ru';
 try { lang = localStorage.getItem('cw-language') || (navigator.language.startsWith('ru') ? 'ru' : 'en'); } catch { lang = navigator.language.startsWith('ru') ? 'ru' : 'en'; }
 const t = (key) => (lang === 'en' ? en : ru)[key] || key;
-function addButtonIcons() {
-  const icons = {
-    'copy-address': ['M8 8h11a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V8Z', 'M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3'],
-    'copy-tron-address': ['M8 8h11a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V8Z', 'M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3'],
-    'copy-private-key': ['M8 8h11a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V8Z', 'M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3'],
-    'confirm-secret': ['M8 8h11a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V8Z', 'M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3'],
-    'add-wallet-toggle': ['M12 5v14M5 12h14'],
-    'refresh-balance': ['M20 7v5h-5', 'M4 17v-5h5', 'M5.5 9a7 7 0 0 1 12-2L20 12', 'M18.5 15a7 7 0 0 1-12 2L4 12'],
-    'tab-pay': ['M4 12h15', 'm13 6 6 6-6 6'],
-    'tab-swap': ['M4 8h16', 'm15 4 5 4-5 4', 'M20 16H4', 'm9 12-5 4 5 4'],
-    'tab-history': ['M12 3a9 9 0 1 0 0 18 9 9 0 1 0 0-18', 'M12 7v5l3 2'],
-    'load-history': ['M12 3a9 9 0 1 0 0 18 9 9 0 1 0 0-18', 'M12 7v5l3 2'],
-    'tab-settings': ['M4 7h16', 'M4 17h16', 'M9 4v6', 'M15 14v6']
-  };
-  for (const [id, paths] of Object.entries(icons)) {
-    const button = $(id);
-    const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    icon.setAttribute('viewBox', '0 0 24 24');
-    icon.setAttribute('fill', 'none');
-    icon.setAttribute('stroke', 'currentColor');
-    icon.setAttribute('stroke-width', '2');
-    icon.setAttribute('stroke-linecap', 'round');
-    icon.setAttribute('stroke-linejoin', 'round');
-    icon.setAttribute('aria-hidden', 'true');
-    icon.setAttribute('focusable', 'false');
-    for (const d of paths) {
-      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      path.setAttribute('d', d);
-      icon.append(path);
-    }
-    const label = document.createElement('span');
-    label.className = 'button-label';
-    label.textContent = button.textContent;
-    button.replaceChildren(icon, label);
-    button.classList.add('icon-button');
+const ICONS = {
+  copy: ['M8 8h11a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V8Z', 'M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3'],
+  refresh: ['M20 7v5h-5', 'M4 17v-5h5', 'M5.5 9a7 7 0 0 1 12-2L20 12', 'M18.5 15a7 7 0 0 1-12 2L4 12'],
+  plus: ['M12 5v14', 'M5 12h14'],
+  qr: ['M4 4h6v6H4z', 'M14 4h6v6h-6z', 'M4 14h6v6H4z', 'M14 14h3v3h-3z', 'M19 19h1v1h-1z'],
+  eye: ['M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z', 'M12 9a3 3 0 1 0 0 6 3 3 0 1 0 0-6'],
+  'eye-slash': ['M3 3l18 18', 'M10.6 10.7a3 3 0 0 0 4.2 4.2', 'M2 12s3.5-7 10-7c1.7 0 3.2.5 4.5 1.3M22 12s-3.5 7-10 7c-1.7 0-3.2-.5-4.5-1.3'],
+  'arrow-up': ['M12 19V5', 'm5 12 7-7 7 7'],
+  'arrow-down': ['M12 5v14', 'm19 12-7 7-7-7'],
+  swap: ['M4 8h16', 'm15 4 5 4-5 4', 'M20 16H4', 'm9 12-5 4 5 4'],
+  clock: ['M12 3a9 9 0 1 0 0 18 9 9 0 1 0 0-18', 'M12 7v5l3 2'],
+  wallet: ['M3 7a2 2 0 0 1 2-2h13a1 1 0 0 1 1 1v2', 'M3 7v10a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1H5a2 2 0 0 1-2-2Z', 'M16 13h2'],
+  gear: ['M12 15a3 3 0 1 0 0-6 3 3 0 1 0 0 6', 'M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3 1a7 7 0 0 0-2-1.2L14.3 3h-4l-.3 2.6a7 7 0 0 0-2 1.2l-2.3-1-2 3.4 2 1.5a7 7 0 0 0 0 2.4l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 2 1.2l.3 2.6h4l.3-2.6a7 7 0 0 0 2-1.2l2.3 1 2-3.4-2-1.5c.1-.4.1-.8.1-1.2Z']
+};
+function makeIcon(name) {
+  const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  icon.setAttribute('viewBox', '0 0 24 24');
+  icon.setAttribute('fill', 'none');
+  icon.setAttribute('stroke', 'currentColor');
+  icon.setAttribute('stroke-width', '2');
+  icon.setAttribute('stroke-linecap', 'round');
+  icon.setAttribute('stroke-linejoin', 'round');
+  icon.setAttribute('aria-hidden', 'true');
+  for (const d of ICONS[name] || []) {
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', d);
+    icon.append(path);
   }
+  return icon;
 }
+function injectIcons() { document.querySelectorAll('[data-icon]').forEach((node) => { node.querySelector('svg')?.remove(); node.prepend(makeIcon(node.dataset.icon)); }); }
+function setIcon(node, name) { node.dataset.icon = name; node.querySelector('svg')?.remove(); node.prepend(makeIcon(name)); }
 function translate() {
   document.documentElement.lang = lang;
   $('language').value = lang;
   document.querySelectorAll('[data-i18n]').forEach((node) => { (node.querySelector(':scope > .button-label') || node).textContent = t(node.dataset.i18n); });
   document.querySelectorAll('[data-i18n-placeholder]').forEach((node) => { node.placeholder = t(node.dataset.i18nPlaceholder); });
+  document.querySelectorAll('[data-i18n-title]').forEach((node) => { node.title = t(node.dataset.i18nTitle); });
   renderWallets(); renderContacts(); renderPayments(); renderTransfers(); renderBridges(); renderState(); renderOverview(); renderTron();
 }
 $('language').addEventListener('change', (event) => { lang = event.target.value; try { localStorage.setItem('cw-language', lang); } catch {} translate(); });
@@ -93,6 +91,8 @@ function renderWallets() {
   select.value = selected || '';
   $('active-address').textContent = selected || '';
   $('tron-address').textContent = state?.tronAddress || '';
+  $('receive-eth').textContent = selected || '';
+  $('receive-tron').textContent = state?.tronAddress || '';
   $('remove-wallet').hidden = !selected;
 }
 function renderState() {
@@ -121,6 +121,10 @@ function renderState() {
 }
 function renderOverview(cached = false) {
   for (const [symbol, key] of [['eth','eth'], ['usdt','usdt'], ['usdc','usdc']]) { const node = $(`inspect-${symbol}`); node.textContent = displayBalance(overview?.[key]); node.title = overview?.[key] ?? ''; }
+  const stables = [overview?.usdt, overview?.usdc, tronOverview?.usdt];
+  const known = stables.some((value) => value !== null && value !== undefined);
+  $('total-balance').textContent = known ? `≈ $${displayBalance(stables.reduce((sum, value) => sum + Number(value || 0), 0).toFixed(2))}` : '—';
+  renderSwapBalance();
   const time = overview?.fetchedAt ? dateText(overview.fetchedAt) : '';
   $('updated-at').textContent = time ? `${t(cached ? 'lastSaved' : 'updated')} ${time}` : '';
   const unavailable = overview?.staleFields || [overview?.eth === null && 'ETH', overview?.usdt === null && 'USDT', overview?.usdc === null && 'USDC'].filter(Boolean);
@@ -152,8 +156,14 @@ $('remove-wallet').addEventListener('click', () => run(async () => { const who =
 $('refresh-balance').addEventListener('click', () => run(async () => { const results = await Promise.allSettled([refreshBalance(), refreshTron()]); if (results[1].status === 'rejected') { $('tron-warning').hidden = false; $('tron-warning').textContent = t('tronUnavailable'); } if (results[0].status === 'rejected') throw results[0].reason; message(''); }, t('checkingBalance')));
 $('copy-address').addEventListener('click', () => run(async () => { await call('copyWalletAddress', { walletAddress: activeAddress() }); message(t('addressCopied')); }));
 $('copy-tron-address').addEventListener('click', () => run(async () => { await call('copyTronAddress', { walletAddress: activeAddress() }); message(t('addressCopied')); }));
+function openReceive() { $('receive-eth').textContent = activeAddress() || ''; $('receive-tron').textContent = state?.tronAddress || ''; $('receive-dialog').showModal(); }
+$('action-receive').addEventListener('click', openReceive);
+$('receive-toggle').addEventListener('click', openReceive);
+$('receive-close').addEventListener('click', () => $('receive-dialog').close());
+$('eye-toggle').addEventListener('click', () => { const hidden = document.body.classList.toggle('privacy'); setIcon($('eye-toggle'), hidden ? 'eye-slash' : 'eye'); $('eye-toggle').title = t(hidden ? 'showBalance' : 'hideBalance'); });
 function resetSwap() { swapQuoteData = null; $('swap-preview').hidden = true; }
-$('swap-token').addEventListener('change', resetSwap);
+function renderSwapBalance() { const token = $('swap-token').value; const value = token === 'USDT' ? overview?.usdt : overview?.usdc; $('swap-balance').textContent = value === null || value === undefined ? '' : `${t('balances')}: ${displayBalance(value)} ${token}`; }
+$('swap-token').addEventListener('change', () => { resetSwap(); renderSwapBalance(); });
 $('swap-amount').addEventListener('input', resetSwap);
 $('swap-form').addEventListener('submit', (event) => { event.preventDefault(); run(async () => { resetSwap(); const value = $('swap-amount').value.trim().replace(',','.'); if (!/^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/.test(value) || Number(value) <= 0) throw new Error(t('checkAmount')); const quote = await call('quoteSwap', { walletAddress: activeAddress(), tokenIn: $('swap-token').value, value }); swapQuoteData = quote; $('swap-preview-output').textContent = `≈${quote.estimatedOut} ${quote.tokenOut}`; $('swap-preview-details').textContent = `${t('swapMinimum')}: ${quote.minOut} ${quote.tokenOut} · ${t('swapPoolFee')}: ${quote.poolFeePercent}% · ${t('quoteExpires')}: ${dateText(quote.expiresAt)}`; $('swap-preview').hidden = false; message(''); }, t('loading')); });
 $('swap-continue').addEventListener('click', () => { const quote = swapQuoteData; if (!quote || Date.parse(quote.expiresAt) <= Date.now()) { resetSwap(); message(t('quoteExpires'), true); return; } paymentDraft = { kind:'swap', quoteId:quote.id, locale:lang }; $('payment-dialog-summary').textContent = `${quote.amountIn} ${quote.tokenIn} → ≈${quote.estimatedOut} ${quote.tokenOut}\n${t('swapMinimum')}: ${quote.minOut} ${quote.tokenOut}\n${t('from')}: ${activeAddress()}`; $('payment-password-error').textContent = ''; $('payment-password').value = ''; $('payment-password').name = `manual-password-${Date.now()}`; $('payment-password-dialog').showModal(); $('payment-password').focus(); });
@@ -166,12 +176,35 @@ $('copy-private-key').addEventListener('click', () => { $('secret-error').textCo
 $('cancel-secret').addEventListener('click', () => $('secret-dialog').close());
 $('secret-dialog').addEventListener('close', () => { $('secret-password').value = ''; });
 $('secret-form').addEventListener('submit', async (event) => { event.preventDefault(); const password = $('secret-password').value; $('secret-password').value = ''; $('confirm-secret').disabled = true; $('cancel-secret').disabled = true; try { const result = await call('copyPrivateKey', { walletAddress:activeAddress(), password, locale:lang }); if (result?.cancelled) { $('secret-dialog').close(); return; } $('secret-dialog').close(); message(t('secretCopied')); } catch (error) { $('secret-error').textContent = errorText(error); $('secret-password').focus(); } finally { $('confirm-secret').disabled = false; $('cancel-secret').disabled = false; } });
-function showTab(tab) { activeTab = activeTab === tab ? null : tab; for (const key of ['pay','swap','history','settings']) { $(`${key}-panel`).hidden = activeTab !== key; $(`tab-${key}`).classList.toggle('active', activeTab === key); $(`tab-${key}`).classList.toggle('secondary', activeTab !== key); } if (activeTab === 'pay') loadContacts().catch((error) => message(errorText(error), true)); }
-document.querySelectorAll('[data-tab]').forEach((button) => button.addEventListener('click', () => showTab(button.dataset.tab)));
+function showScreen(name) {
+  activeTab = name;
+  for (const key of ['wallet','pay','swap','history','settings']) { const screen = $(`screen-${key}`); screen.hidden = name !== key; screen.classList.toggle('active', name === key); }
+  document.querySelectorAll('.bottom-nav .nav-item').forEach((item) => item.classList.toggle('active', item.dataset.screen === name));
+  if (name === 'pay') loadContacts().catch((error) => message(errorText(error), true));
+}
+document.querySelectorAll('[data-screen]').forEach((button) => button.addEventListener('click', () => showScreen(button.dataset.screen)));
 function resetHistory() { transfers = []; payments = []; bridges = []; $('history-content').hidden = true; $('tx-result').textContent = ''; renderTransfers(); renderPayments(); renderBridges(); }
-function renderBridges() { const list = $('bridge-history'); list.replaceChildren(); if (!bridges.length) { const p = document.createElement('p'); p.className = 'muted'; p.textContent = t('noBridgeHistory'); list.append(p); return; } for (const bridge of bridges) { const row = document.createElement('article'); row.className = 'payment-row'; const body = document.createElement('div'); const title = document.createElement('strong'); title.textContent = bridge.direction === 'ETH_TO_TRON' ? 'USDT Ethereum → USDT TRON' : 'USDT TRON → USDT Ethereum'; const time = document.createElement('span'); time.className = 'mono'; time.textContent = dateText(bridge.submittedAt); const status = document.createElement('span'); status.className = `status ${bridge.status}`; status.textContent = t(bridge.status === 'confirmed' ? 'statusConfirmed' : bridge.status === 'failed' ? 'statusFailed' : bridge.status === 'partial' ? 'statusPartial' : 'statusPending'); body.append(title,time,status); const amount = document.createElement('span'); amount.className = 'amount'; amount.textContent = `${bridge.amount} USDT`; const details = document.createElement('p'); details.className = 'mono details-text'; details.textContent = `${t('hash')}: ${bridge.hash}\n${t('swapMinimum')}: ${bridge.minOut} USDT`; row.append(body,amount,details); list.append(row); } }
-function renderTransfers() { const list = $('inspect-transfers'); list.replaceChildren(); if (!transfers.length) { const p = document.createElement('p'); p.className = 'muted'; p.textContent = t('networkTransfersEmpty'); list.append(p); return; } for (const item of transfers) { const incoming = item.to.toLowerCase() === activeAddress()?.toLowerCase(); const row = document.createElement('article'); row.className = `transfer ${incoming ? 'in' : 'out'}`; const body = document.createElement('div'); const title = document.createElement('strong'); title.textContent = t(incoming ? 'incoming' : 'outgoing'); const time = document.createElement('small'); time.textContent = dateText(item.date); body.append(title,time); const amount = document.createElement('span'); amount.className = 'amount'; amount.textContent = `${incoming ? '+' : '−'}${item.value} ${item.token || 'USDT'}`; const details = document.createElement('details'); const summary = document.createElement('summary'); summary.textContent = t('details'); const data = document.createElement('p'); data.className = 'mono details-text'; data.textContent = `${t('from')}: ${item.from}\n${t('to')}: ${item.to}\n${t('hash')}: ${item.hash}`; details.append(summary,data); row.append(body,amount,details); list.append(row); } }
-function renderPayments() { const list = $('payment-history'); list.replaceChildren(); if (!payments.length) { const p = document.createElement('p'); p.className = 'muted'; p.textContent = t('localPaymentsEmpty'); list.append(p); return; } for (const payment of payments) { const row = document.createElement('article'); row.className = 'payment-row'; const body = document.createElement('div'); const name = document.createElement('strong'); name.textContent = payment.kind === 'swap' ? `${t('swapOperation')} ${payment.token} → ${payment.tokenOut}` : payment.counterparty || short(payment.recipient); const when = document.createElement('span'); when.className = 'mono'; when.textContent = `${t(payment.status === 'pending' ? 'sentAt' : payment.status === 'confirmed' ? 'paidAt' : 'failedAt')} ${dateText(payment.date || payment.submittedAt)}`; const status = document.createElement('span'); status.className = `status ${payment.status}`; status.textContent = t(payment.status === 'pending' ? 'statusPending' : payment.status === 'confirmed' ? 'statusConfirmed' : 'statusFailed'); body.append(name,when,status); if (payment.description) { const note = document.createElement('p'); note.textContent = payment.description; body.append(note); } const amount = document.createElement('span'); amount.className = 'amount'; amount.textContent = payment.kind === 'swap' ? `−${payment.amount} ${payment.token} → ≈${payment.expectedOut} ${payment.tokenOut}` : `−${payment.amount} ${payment.token || 'USDT'}`; const details = document.createElement('details'); const summary = document.createElement('summary'); summary.textContent = t('details'); const data = document.createElement('p'); data.className = 'mono details-text'; data.textContent = `${t('to')}: ${payment.recipient}\n${t('hash')}: ${payment.hash}`; details.append(summary,data); row.append(body,amount,details); list.append(row); } }
+function historyRow({ icon, iconClass, title, date, note, sum, sumClass, status, details }) {
+  const row = document.createElement('article'); row.className = 'history-item';
+  const top = document.createElement('div'); top.className = 'history-top';
+  const left = document.createElement('div'); left.className = 'history-left';
+  const iconEl = document.createElement('span'); iconEl.className = `history-icon ${iconClass}`; iconEl.append(makeIcon(icon));
+  const body = document.createElement('div');
+  const titleEl = document.createElement('div'); titleEl.className = 'history-title'; titleEl.textContent = title; body.append(titleEl);
+  if (date) { const dateEl = document.createElement('div'); dateEl.className = 'history-date'; dateEl.textContent = date; body.append(dateEl); }
+  if (note) { const noteEl = document.createElement('div'); noteEl.className = 'history-date'; noteEl.textContent = note; body.append(noteEl); }
+  left.append(iconEl, body);
+  const prices = document.createElement('div'); prices.className = 'history-prices';
+  const sumEl = document.createElement('div'); sumEl.className = `history-sum ${sumClass} maskable`; sumEl.textContent = sum; prices.append(sumEl);
+  if (status) { const statusEl = document.createElement('span'); statusEl.className = `status ${status.key}`; statusEl.textContent = status.text; prices.append(statusEl); }
+  top.append(left, prices); row.append(top);
+  if (details) { const det = document.createElement('details'); const summary = document.createElement('summary'); summary.textContent = t('details'); const data = document.createElement('p'); data.className = 'mono details-text'; data.textContent = details; det.append(summary, data); row.append(det); }
+  return row;
+}
+function historyEmpty(list, key) { const p = document.createElement('p'); p.className = 'history-empty'; p.textContent = t(key); list.append(p); }
+function renderBridges() { const list = $('bridge-history'); list.replaceChildren(); if (!bridges.length) return historyEmpty(list, 'noBridgeHistory'); for (const bridge of bridges) { const statusKey = bridge.status === 'confirmed' ? 'statusConfirmed' : bridge.status === 'failed' ? 'statusFailed' : bridge.status === 'partial' ? 'statusPartial' : 'statusPending'; list.append(historyRow({ icon:'swap', iconClass:'swap', title: bridge.direction === 'ETH_TO_TRON' ? 'USDT Ethereum → USDT TRON' : 'USDT TRON → USDT Ethereum', date: dateText(bridge.submittedAt), sum: `${bridge.amount} USDT`, sumClass:'out', status: { key: bridge.status, text: t(statusKey) }, details: `${t('hash')}: ${bridge.hash}\n${t('swapMinimum')}: ${bridge.minOut} USDT` })); } }
+function renderTransfers() { const list = $('inspect-transfers'); list.replaceChildren(); if (!transfers.length) return historyEmpty(list, 'networkTransfersEmpty'); for (const item of transfers) { const incoming = item.to.toLowerCase() === activeAddress()?.toLowerCase(); list.append(historyRow({ icon: incoming ? 'arrowDown' : 'arrowUp', iconClass: incoming ? 'in' : 'out', title: t(incoming ? 'incoming' : 'outgoing'), date: dateText(item.date), sum: `${incoming ? '+' : '−'}${item.value} ${item.token || 'USDT'}`, sumClass: incoming ? 'in' : 'out', details: `${t('from')}: ${item.from}\n${t('to')}: ${item.to}\n${t('hash')}: ${item.hash}` })); } }
+function renderPayments() { const list = $('payment-history'); list.replaceChildren(); if (!payments.length) return historyEmpty(list, 'localPaymentsEmpty'); for (const payment of payments) { const swap = payment.kind === 'swap'; const statusKey = payment.status === 'confirmed' ? 'statusConfirmed' : payment.status === 'failed' ? 'statusFailed' : 'statusPending'; list.append(historyRow({ icon: swap ? 'swap' : 'arrowUp', iconClass: swap ? 'swap' : 'out', title: swap ? `${t('swapOperation')} ${payment.token} → ${payment.tokenOut}` : payment.counterparty || short(payment.recipient), date: `${t(payment.status === 'pending' ? 'sentAt' : payment.status === 'confirmed' ? 'paidAt' : 'failedAt')} ${dateText(payment.date || payment.submittedAt)}`, note: payment.description || '', sum: swap ? `−${payment.amount} ${payment.token} → ≈${payment.expectedOut} ${payment.tokenOut}` : `−${payment.amount} ${payment.token || 'USDT'}`, sumClass:'out', status: { key: payment.status, text: t(statusKey) }, details: `${t('to')}: ${payment.recipient}\n${t('hash')}: ${payment.hash}` })); } }
 $('load-history').addEventListener('click', () => run(async () => { if (!activeAddress()) { message(t('noWallet'), true); return; } const who = activeAddress(); const results = await Promise.allSettled([call('loadTransferHistory', { walletAddress: who }), call('listPayments', { walletAddress: who }), call('listBridges', { walletAddress: who })]); if (who !== activeAddress()) return; transfers = results[0].status === 'fulfilled' ? results[0].value.transfers : []; payments = results[1].status === 'fulfilled' ? results[1].value : []; bridges = results[2].status === 'fulfilled' ? results[2].value : []; $('history-content').hidden = false; renderTransfers(); renderPayments(); renderBridges(); if (results[0].status === 'rejected') message(t('historyError'), true); else if (results[1].status === 'rejected') message(errorText(results[1].reason), true); else if (results[2].status === 'rejected') message(errorText(results[2].reason), true); else message(results[0].value.unavailable?.length ? `${t('partialHistory')}: ${results[0].value.unavailable.join(', ')}` : ''); }, t('checkingHistory')));
 $('status-form').addEventListener('submit', (event) => { event.preventDefault(); run(async () => { const result = await call('transactionStatus', { txHash: $('tx-hash').value.trim() }); const status = lang === 'en' ? ({ 'Успешно':'Success', 'Ошибка':'Failed', 'Ожидает подтверждения или не найдена':'Pending or not found' }[result.status] || result.status) : result.status; $('tx-result').textContent = result.block ? `${status} · ${result.block}` : status; message(t('statusResult')); }); });
 function selectContact(value, clear = true) { const contact = contacts.find((item) => item.address.toLowerCase() === value.toLowerCase()); $('contact-select').value = contact?.address || ''; $('recipient').readOnly = !!contact; if (contact || clear) $('recipient').value = contact?.address || ''; $('selected-contact-info').hidden = !contact; $('selected-contact-info').textContent = contact ? [contact.description, contact.lastPaymentAt ? `${t('lastPayment')}: ${dateText(contact.lastPaymentAt)}` : t('noPayments')].filter(Boolean).join(' · ') : ''; }
@@ -192,4 +225,4 @@ $('cancel-payment').addEventListener('click', () => $('payment-password-dialog')
 $('payment-password-dialog').addEventListener('cancel', (event) => { if (paymentSending) event.preventDefault(); });
 $('payment-password-dialog').addEventListener('close', () => { $('payment-password').value = ''; paymentDraft = null; });
 $('payment-password-form').addEventListener('submit', async (event) => { event.preventDefault(); if (paymentSending || !paymentDraft) return; const draft = paymentDraft; const password = $('payment-password').value; $('payment-password').value = ''; paymentSending = true; $('confirm-payment-button').disabled = true; $('cancel-payment').disabled = true; $('payment-password-error').textContent = t(draft.kind === 'bridge' ? 'bridging' : 'checkingFee'); try { const result = await call(draft.kind === 'bridge' ? 'executeBridge' : draft.kind === 'swap' ? 'executeSwap' : 'sendToken', { ...draft, password }); $('payment-password-dialog').close(); if (result.cancelled) { message(t('paymentCancelled')); return; } if (draft.kind === 'bridge') { resetBridge(); $('bridge-amount').value = ''; message(`${t(result.status === 'confirmed' ? 'bridgeSent' : result.status === 'partial' ? 'bridgePartial' : 'bridgePending')}: ${result.hash}`); refreshTron().catch(() => {}); refreshBalance().catch(() => {}); return; } $('tx-hash').value = result.hash; if (draft.kind === 'swap') resetSwap(); else { $('amount').value = ''; $('payment-description').value = ''; } message(result.metadataSaved ? `${t(draft.kind === 'swap' ? 'swapSent' : 'paymentSent')}: ${result.hash}` : `${t('paymentNotSaved')} ${result.hash}`, !result.metadataSaved); if (draft.kind === 'swap') refreshBalance().catch(() => {}); } catch (error) { $('payment-password-error').textContent = errorText(error); $('payment-password').focus(); } finally { paymentSending = false; $('confirm-payment-button').disabled = false; $('cancel-payment').disabled = false; } });
-addButtonIcons(); translate(); run(async () => { await loadState(); message(''); }, t('loading'));
+injectIcons(); showScreen('wallet'); translate(); run(async () => { await loadState(); message(''); }, t('loading'));
