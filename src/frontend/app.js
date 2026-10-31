@@ -110,7 +110,7 @@ function renderState() {
   $('copy-private-key').hidden = !state.signerAddress || !state.hasPaymentPassword || state.needsPasswordSetup;
   $('copy-address').disabled = !selected;
   const canPay = selected && state.keychainAvailable && !!state.signerAddress && state.hasPaymentPassword && !state.needsPasswordSetup ;
-  $('send-form').hidden = !canPay;
+  $('send-form').hidden = !selected;
   $('swap-form').hidden = !canPay;
   const canBridge = selected && state.keychainAvailable && !!state.signerAddress && state.hasPaymentPassword && !state.needsPasswordSetup;
   $('bridge-form').hidden = !canBridge;
@@ -188,7 +188,11 @@ function showScreen(name) {
   $('screen-title').hidden = main;
   $('network-badge').hidden = !main;
   $('screen-title').textContent = { pay:t('actionSend'), swap:t('swap'), history:t('history'), settings:t('settings') }[name] || '';
-  if (name === 'pay') loadContacts().catch((error) => message(errorText(error), true));
+  if (name === 'pay') {
+    loadContacts().catch((error) => message(errorText(error), true));
+    const who = activeAddress();
+    if (who) call('listPayments', { walletAddress: who }).then((list) => { if (who === activeAddress()) { payments = list; renderPayments(); renderRecipientOptions(); } }).catch(() => {});
+  }
 }
 $('back-button').addEventListener('click', () => showScreen('wallet'));
 document.querySelectorAll('[data-screen]').forEach((button) => button.addEventListener('click', () => showScreen(button.dataset.screen)));
@@ -231,7 +235,7 @@ $('create-form').addEventListener('submit', (event) => { event.preventDefault();
 $('legacy-form').addEventListener('submit', (event) => { event.preventDefault(); const password = matchingPassword('legacy-password','legacy-password-confirm'); if (password === null) return; run(async () => { try { await call('setPaymentPassword', { password }); } finally { $('legacy-password').value = ''; $('legacy-password-confirm').value = ''; } await loadState(false); message(t('passwordSet')); }); });
 $('hide-backup').addEventListener('click', () => { $('backup-key').value = ''; $('backup').hidden = true; message(t('backupHidden')); });
 $('delete-wallet').addEventListener('click', () => run(async () => { if (await call('deleteWallet', { locale:lang })) { await loadState(false); message(t('keyDeleted')); } }));
-$('send-form').addEventListener('submit', (event) => { event.preventDefault(); const value = $('amount').value.trim().replace(',','.'); const recipient = $('recipient').value.trim(); if (!/^0x[0-9a-fA-F]{40}$/.test(recipient) || !/^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/.test(value) || Number(value) <= 0) { message(t('checkAmount'),true); return; } paymentDraft = { kind:'payment', walletAddress:activeAddress(), recipient, value, token:$('payment-token').value, description:$('payment-description').value.trim(), contactName:$('recipient-name').value.trim(), locale:lang }; $('payment-dialog-summary').textContent = `${value} ${paymentDraft.token}\n${t('from')}: ${activeAddress()}\n${t('to')}: ${recipient}${paymentDraft.description ? `\n${t('note')}: ${paymentDraft.description}` : ''}`; $('payment-password-error').textContent = ''; $('payment-password').value = ''; $('payment-password').name = `manual-password-${Date.now()}`; $('payment-password-dialog').showModal(); $('payment-password').focus(); });
+$('send-form').addEventListener('submit', (event) => { event.preventDefault(); const value = $('amount').value.trim().replace(',','.'); const recipient = $('recipient').value.trim(); if (!/^0x[0-9a-fA-F]{40}$/.test(recipient) || !/^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/.test(value) || Number(value) <= 0) { message(t('checkAmount'),true); return; } const blockReason = !activeAddress() ? 'noWallet' : !state?.keychainAvailable ? 'keychainUnavailable' : !state?.signerAddress ? 'watchOnly' : !state?.hasPaymentPassword || state?.needsPasswordSetup ? 'legacyKey' : null; if (blockReason) { message(t(blockReason), true); return; } paymentDraft = { kind:'payment', walletAddress:activeAddress(), recipient, value, token:$('payment-token').value, description:$('payment-description').value.trim(), contactName:$('recipient-name').value.trim(), locale:lang }; $('payment-dialog-summary').textContent = `${value} ${paymentDraft.token}\n${t('from')}: ${activeAddress()}\n${t('to')}: ${recipient}${paymentDraft.description ? `\n${t('note')}: ${paymentDraft.description}` : ''}`; $('payment-password-error').textContent = ''; $('payment-password').value = ''; $('payment-password').name = `manual-password-${Date.now()}`; $('payment-password-dialog').showModal(); $('payment-password').focus(); });
 $('cancel-payment').addEventListener('click', () => $('payment-password-dialog').close());
 $('payment-password-dialog').addEventListener('cancel', (event) => { if (paymentSending) event.preventDefault(); });
 $('payment-password-dialog').addEventListener('close', () => { $('payment-password').value = ''; paymentDraft = null; });

@@ -8,7 +8,7 @@
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 [hidden]{display:none!important}
 html{height:100%}
-body{margin:0;min-height:100%;background:var(--frame);color:var(--bright);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif}
+body{margin:0;min-height:100%;display:flex;flex-direction:column;background:var(--frame);color:var(--bright);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif}
 p{margin:0}button,input,select,textarea{font:inherit}
 h1,h2,h3{margin:0}
 button{border:0;border-radius:14px;padding:13px 16px;background:linear-gradient(135deg,var(--accent),var(--accent-2));color:#fff;font-weight:600;cursor:pointer;box-shadow:0 8px 16px rgba(37,99,235,.25);transition:opacity .2s,background-color .2s,transform .2s}
@@ -28,7 +28,7 @@ label{font-weight:600;font-size:12px;color:var(--muted);display:block;margin:12p
 .muted{color:var(--muted);font-size:12px}
 
 /* Shell: sticky header + naturally scrolling content + sticky bottom nav */
-.app-frame{min-height:100%;display:flex;flex-direction:column}
+.app-frame{flex:1;display:flex;flex-direction:column}
 .app-header{position:sticky;top:0;z-index:6;background:var(--frame);flex:none;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 24px 10px;border-bottom:1px solid var(--border)}
 .header-left{display:flex;align-items:center;gap:10px;min-width:0}
 .screen-title{font-size:17px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -41,7 +41,7 @@ label{font-weight:600;font-size:12px;color:var(--muted);display:block;margin:12p
 .icon-btn svg,.action-circle svg,.nav-item svg,.history-icon svg{width:18px;height:18px}
 button svg{flex:none}
 
-.screen-content{display:none;width:100%;max-width:820px;margin:0 auto;padding:14px 24px 30px}
+.screen-content{display:none;width:100%;max-width:820px;margin:0 auto;padding:14px 24px 30px;flex:1}
 .screen-content.active{display:block}
 
 /* Wallet screen */
