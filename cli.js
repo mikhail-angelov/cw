@@ -73,12 +73,14 @@ program
 
 // Example: show-info command
 program
-  .command("show-info")
+  .command("info")
   .description("Show app info from package.json")
-  .action(() => {
-    console.log("App Name:", pkg.name);
-    console.log("Version:", pkg.version);
-    console.log("Description:", pkg.description);
+  .action(async () => {
+    try {
+      await app.decriptKey();
+    } catch (err) {
+      console.error("Error encrypt-key:", err.message);
+    }
   });
 
 program

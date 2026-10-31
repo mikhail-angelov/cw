@@ -1,10 +1,15 @@
 {
   "name": "cw",
   "version": "1.0.0",
-  "description": "ustd/eth wallet",
-  "main": "cli.js",
+  "description": "macOS Ethereum and TRON wallet",
+  "main": "src/backend/main.ts",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "predev": "npm run bundle:backend",
+    "dev": "tinyjs dev",
+    "prebuild": "npm run bundle:backend",
+    "bundle:backend": "esbuild src/backend/main.ts --bundle --format=esm --platform=browser --target=es2022 --outfile=generated/backend/main.js",
+    "build": "tinyjs build",
+    "package:mac": "node scripts/package-macos.mjs"
   },
   "keywords": [
     "crypto",
@@ -14,8 +19,23 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@lifi/sdk": "^4.12.1",
+    "@lifi/sdk-provider-ethereum": "^4.2.11",
+    "@lifi/sdk-provider-tron": "^4.1.9",
+    "@noble/hashes": "^2.4.0",
     "commander": "^14.0.0",
     "dotenv": "^17.2.1",
-    "ethers": "^6.15.0"
-  }
+    "ethers": "^6.15.0",
+    "tronweb": "^6.5.1",
+    "viem": "^2.57.12"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
+  },
+  "overrides": {
+    "axios": "1.21.0",
+    "ws": "8.22.0"
+  },
+  "packageManager": "npm@11.21.1"
 }

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://tinyjs.app/schema/tinyjs.schema.json",
+  "name": "cw",
+  "title": "CW Wallet",
+  "id": "app.tinyjs.cw-wallet",
+  "version": "0.1.0",
+  "minTinyjsVersion": "0.67.0",
+  "size": "980x720",
+  "backend": "generated/backend/main.js",
+  "debug": false,
+  "contextMenu": false,
+  "popups": "deny",
+  "downloads": "deny",
+  "api": {
+    "disable": ["*"],
+    "origins": {
+      "file://*": ["walletState", "saveWatchAddress", "selectWallet", "removeWallet", "saveInfuraKey", "setPaymentPassword", "importWallet", "importCwgKey", "createWallet", "deleteWallet", "listCounterparties", "saveCounterparty", "deleteCounterparty", "listPayments", "listBridges", "transactionStatus", "sendToken", "quoteSwap", "executeSwap", "quoteBridge", "executeBridge", "copyWalletAddress", "copyTronAddress", "copyPrivateKey", "inspectAddress", "inspectTron", "loadTransferHistory", "dialog.confirm"]
+    }
+  }
+}

@@ -1,220 +1,47 @@
-# CW USDT/ETH CLI crypto wallet
+# CW Wallet
 
-A Node.js command-line wallet for interacting with USDT (Tether) and ETH on the Ethereum mainnet (or testnet).
-Supports balance checks, transaction history, status queries, secure key management, and sending USDT.
+Компактное macOS-приложение для просмотра Ethereum и TRON, отправки USDT/USDC, обмена USDT ↔ USDC в Ethereum и переноса USDT между Ethereum и TRON в обе стороны. Интерфейс доступен на русском и английском. Основа — [tinyjs](https://tinyjs.app/).
 
-## Features
+## Кошельки и безопасность
 
-- **Check USDT and ETH balance** for any Ethereum address
-- **Show last 3 USDT transactions** (incoming/outgoing) for an address
-- **Query status** of a transaction by hash
-- **Send USDT** to any account (requires sender's private key)
-- **Create new wallet** (address + private key)
-- **Encrypt/decrypt your private key** with a password phrase
-- Simple CLI built with [commander](https://github.com/tj/commander.js) and [ethers.js](https://docs.ethers.org/)
+- Добавьте несколько своих публичных адресов и переключайтесь между ними вверху окна. Для просмотра балансов приватные ключи не нужны.
+- К каждому адресу можно отдельно добавить ключ подписи. Он шифруется паролем платежа с помощью scrypt и AES-GCM и хранится в macOS Keychain под ключом этого адреса. Пароль требуется вручную при каждом платеже; приложение его не сохраняет.
+- Адрес выбранного кошелька копируется одной кнопкой. Приватный ключ можно скопировать после ввода пароля, системной аутентификации и отдельного подтверждения. Если буфер не изменился, приложение очищает его через 30 секунд; менеджеры буфера и Universal Clipboard могут сохранить копию.
+- Ключ из старой версии переносится в хранилище выбранного адреса при первом запуске. Старый ключ без пароля нужно защитить через настройки. Удаление адреса не удаляет ключ: сначала удалите ключ отдельно.
+- Балансы читаются через публичный Ethereum RPC с резервным запросом к Blockscout. История переводов запрашивается **только** после нажатия «Загрузить историю» в разделе «История». Данные выбранного адреса не смешиваются с другими.
+- Для каждого выбранного Ethereum-адреса приложение показывает соответствующий TRON-адрес, полученный из того же открытого ключа, и его балансы TRX и официального USDT TRC-20. Баланс TRON читается через TronGrid. Это отдельная сеть: USDT в колонке Ethereum уже является ERC-20 и не нуждается в переносе.
+- Контрагенты и заметки к платежам хранятся локально в настройках приложения и не отправляются в блокчейн. Дата платежа появляется после подтверждения сетью. Платежи отправляются сразу после подтверждения в приложении.
+- Платежи поддерживают нативные USDT и USDC в Ethereum mainnet. Обмен использует прямые пулы Uniswap v3 с котировкой на 5 минут, минимумом к получению на 0,5% ниже котировки и блокировкой котировки хуже 1:1 более чем на 5%. Для первого обмена может потребоваться отдельная транзакция разрешения списания токена и ETH для комиссий сети; разрешение ограничено точной суммой. Перед отправкой приложение показывает адрес роутера, число разрешений и оценку максимальной комиссии. Реальный обмен средствами не входит в автоматические проверки.
+- Перенос USDT между TRON и Ethereum использует маршрут LI.FI и подпись тем же ключом после ручного ввода пароля. Перед отправкой приложение проверяет адреса, сеть, минимум к получению (не менее 95% суммы), баланс USDT и оценку комиссии в TRX или ETH, показывает комиссии маршрута и требует системного подтверждения. Для Ethereum → TRON приложение требует активированный TRON-адрес; сначала отправьте на него немного TRX из другого кошелька. Разрешение списания ограничено точной суммой. Статус переноса обновляется по кнопке истории; частичное исполнение помечается отдельно, поскольку на целевой сети может оказаться промежуточный токен. Котировки в обе стороны проверены без отправки средств; реальные межсетевые транзакции не выполнялись при проверке.
+- Личный Infura Project ID необязателен: приложение использует публичный Ethereum RPC. Для отправки нужен только защищённый приватный ключ выбранного кошелька и пароль платежа, который вы задаёте сами (минимум 12 символов) и вводите каждый раз вручную. Для импорта из cwg нужны старый пароль cwg и новый пароль приложения. При создании нового кошелька сохраните показанный приватный ключ для резервной копии.
 
-## Prerequisites
+## Локальная сборка
 
-- Node.js v16+
-- npm
-- Ethereum account (mainnet or Sepolia testnet)
-- USDT contract address (mainnet: `0xdAC17F958D2ee523a2206206994597C13D831ec7`)
-- API key for [Infura](https://infura.io/)
-
-## Setup
-
-1. **Clone the repository**
-   ```sh
-   git clone <your-repo-url>
-   cd cw
-   ```
-
-2. **Install dependencies**
-   ```sh
-   npm install
-   ```
-
-3. **Configure environment variables**
-   Create a `.env` file in the `cw` directory:
-   ```
-   INFURA_API_KEY=your_infura_project_id
-   USDT_CONTRACT=usdt_contract_address_on_mainnet
-   PRIVATE_KEY=your_private_key_for_sending_usdt
-   ```
-   - `PRIVATE_KEY` is only required for sending USDT.
-   - For mainnet, use the official USDT contract: `0xdAC17F958D2ee523a2206206994597C13D831ec7`
-
-4. **Verify USDT ABI**
-   The ABI for USDT should be present in `usdt-abi.json` and must include the `Transfer` event.
-
-## CLI Usage
-
-All commands are run from the project root:
+Нужны Node.js 24, npm 11 и [tinyjs 0.67.0](https://github.com/tarwin/tinyjsapp/releases/tag/v0.67.0). Версия npm 11 применяет закреплённые обновления транзитивных зависимостей.
 
 ```sh
-node cli.js <command> [options]
+npm ci
+npm run build
+open 'dist/CW Wallet.app'
 ```
 
-### Commands & Examples
-
-#### Check Balance
-
-Shows both USDT and ETH balances for the given Ethereum address.
+Универсальный архив для Apple Silicon и Intel:
 
 ```sh
-node cli.js balance 0xYourAddress
-```
-**Example Output:**
-```
-USDT Balance: 123.45 (0xYourAddress)
-ETH Balance: 0.6789 (0xYourAddress)
+npm run build -- --universal
+npm run package:mac
 ```
 
-#### Show Last 3 USDT Transactions
+## Релизы и Homebrew
 
-Displays the last 3 USDT transactions (incoming/outgoing) for the address.
+GitHub Actions проверяет TypeScript и JavaScript и собирает универсальное macOS-приложение. Тег `vX.Y.Z` должен совпадать с `version` в `tinyjs.json`; по тегу CI публикует GitHub Release с ZIP и SHA-256. Если в репозитории `cw` задан секрет `HOMEBREW_TAP_TOKEN` с правом `contents: write` для `mikhail-angelov/homebrew-tap`, стабильный релиз автоматически обновляет Cask `cw-wallet`.
+
+После первого релиза и обновления tap:
 
 ```sh
-node cli.js last 0xYourAddress
-```
-**Example Output:**
-```
-#1: Hash: 0xabc...123
-  From: 0xSender
-  To: 0xYourAddress
-  Value: 50 USDT
-  Block: 18000000
-
-#2: Hash: 0xdef...456
-  From: 0xYourAddress
-  To: 0xRecipient
-  Value: 10 USDT
-  Block: 17999999
-
-#3: Hash: 0xghi...789
-  From: 0xOther
-  To: 0xYourAddress
-  Value: 5 USDT
-  Block: 17999998
+brew install --cask mikhail-angelov/tap/cw-wallet
 ```
 
-#### Transaction Status
+Сейчас сборка подписывается ad hoc и не нотарифицируется Apple. Homebrew сохраняет macOS quarantine; при первом запуске macOS может попросить вручную разрешить приложение в «Системные настройки → Конфиденциальность и безопасность». CI не отключает Gatekeeper. Для автоматического доверенного запуска потребуется Developer ID и notarization.
 
-Shows the status (success/failure, block, gas used) of a transaction by its hash.
-
-```sh
-node cli.js status 0xTxHashHere
-```
-**Example Output:**
-```
-Status: Success
-Block: 18000001
-Gas Used: 51234
-```
-
-#### Send USDT
-
-Sends the specified amount of USDT to the recipient address.
-Requires `PRIVATE_KEY` in `.env` to sign the transaction.
-
-```sh
-node cli.js send 0xRecipientAddress 10
-```
-**Example Output:**
-```
-Transaction sent! Tx Hash: 0xabc...def
-Transfer successful! Tx Hash: 0xabc...def, used 65000 gas
-```
-
-#### Create Wallet
-
-Generates a new Ethereum wallet (address + private key).
-
-```sh
-node cli.js create
-```
-**Example Output:**
-```
-New Wallet:
-Address: 0xNewAddress
-Private Key: 0xNewPrivateKey
-```
-
-#### Encrypt/Decrypt Private Key
-
-Encrypts your private key with a password phrase and saves it to `priv.key`.
-
-```sh
-node cli.js encrypt-key
-```
-**Example Output:**
-```
-Enter password phrase to encrypt PRIVATE_KEY:
-Encrypted PRIVATE_KEY saved to priv.key
-```
-
-Decrypts and prints your private key from `priv.key`.
-
-```sh
-node cli.js decrypt-key
-```
-**Example Output:**
-```
-Enter password phrase to decrypt PRIVATE_KEY:
-PRIVATE_KEY: 0xYourPrivateKey
-```
-
-#### Show App Info
-
-Shows app info from `package.json`.
-
-```sh
-node cli.js show-info
-```
-**Example Output:**
-```
-App Name: cw
-Version: 1.0.0
-Description: usdt/eth wallet
-```
-
-## Example Workflow
-
-```sh
-# Check balances
-node cli.js balance 0xYourAddress
-
-# View recent USDT transactions
-node cli.js last 0xYourAddress
-
-# Check transaction status
-node cli.js status 0xTxHashHere
-
-# Send USDT
-node cli.js send 0xRecipientAddress 10
-
-# Create a new wallet
-node cli.js create
-
-# Encrypt your private key
-node cli.js encrypt-key
-
-# Decrypt your private key
-node cli.js decrypt-key
-```
-
-## Security Notes
-
-- **Never share your private key.**
-- Always use password encryption for your private key.
-- For mainnet, ensure you have enough ETH for gas fees.
-- For testing, use Sepolia or other testnets.
-
-## Extending
-
-- Add more ERC20 commands by extending `app.js` and `cli.js`.
-- Integrate with other Ethereum networks by changing RPC endpoints.
-
-## License
-
-MIT
+Исходный CLI остаётся в `cli.js`.
