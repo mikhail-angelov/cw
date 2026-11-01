@@ -179,6 +179,10 @@ dialog .eyebrow{font-size:10px;font-weight:700;letter-spacing:.12em;color:var(--
 .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
 .modal-actions button{min-width:110px}
 .field-error{min-height:1.3em;color:#ff9d9d;font-size:12px;margin-top:7px}
+.spinner{width:15px;height:15px;border:2px solid rgba(255,255,255,.25);border-top-color:#fff;border-radius:50%;display:inline-block;vertical-align:-3px;margin-right:8px;flex:none;animation:cw-spin .8s linear infinite}
+@keyframes cw-spin{to{transform:rotate(360deg)}}
+.dialog-busy{display:flex;align-items:center;margin-top:10px;font-size:12px;color:var(--muted)}
+.refresh-btn{padding:5px 10px;font-size:11px;border-radius:10px;margin-top:6px;box-shadow:none}
 .receive-address{padding:12px 14px;background:var(--field);border:1px solid var(--border);border-radius:14px;margin-top:10px}
 .receive-address .mono{display:block;margin:6px 0 8px;color:var(--text)}
 .receive-head{display:flex;justify-content:space-between;align-items:center;gap:10px}
