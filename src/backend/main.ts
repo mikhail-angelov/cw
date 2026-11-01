@@ -22,11 +22,7 @@ const QUOTER = '0x61fFE014bA17989E743c5F6cB21bF9697530B21e';
 const ROUTER = '0xE592427A0AEce92De3Edee1F18E0157C05861564';
 const QUOTER_ABI = parseAbi(['function quoteExactInputSingle((address tokenIn,address tokenOut,uint256 amountIn,uint24 fee,uint160 sqrtPriceLimitX96) params) view returns (uint256 amountOut,uint160 sqrtPriceX96After,uint32 initializedTicksCrossed,uint256 gasEstimate)']);
 const ROUTER_ABI = parseAbi(['function exactInputSingle((address tokenIn,address tokenOut,uint24 fee,address recipient,uint256 deadline,uint256 amountIn,uint256 amountOutMinimum,uint160 sqrtPriceLimitX96) params) payable returns (uint256 amountOut)']);
-const KEY = 'private-key';
-const VAULT = 'wallet-vault-v1';
 const INFURA = 'infura-api-key';
-const WATCH = 'watched-address';
-const OVERVIEW = 'last-overview';
 const WALLETS = 'wallets-v2';
 const ACTIVE = 'active-wallet-v2';
 const CONTACTS = 'counterparties';
@@ -50,24 +46,7 @@ const overviewName = (who: string) => `overview-v2:${who.toLowerCase()}`;
 
 async function walletList(app: any): Promise<WalletEntry[]> {
   const saved = await app.store.get(WALLETS);
-  if (Array.isArray(saved)) return saved.filter((item) => isAddress(item?.address));
-  const oldAddress = await app.store.get(WATCH);
-  const oldVault = await app.secrets.get(VAULT);
-  const oldKey = await app.secrets.get(KEY);
-  const vaultAddress = oldVault ? parseVault(oldVault).address : null;
-  const keyAddress = oldKey ? privateKeyToAccount(oldKey).address : null;
-  const initial = isAddress(oldAddress) ? getAddress(oldAddress) : vaultAddress ?? keyAddress;
-  const wallets: WalletEntry[] = [];
-  for (const who of [initial, vaultAddress, keyAddress]) if (who && !wallets.some((item) => item.address.toLowerCase() === who.toLowerCase())) wallets.push({ address: who, label: '' });
-  if (oldVault && vaultAddress && !(await app.secrets.get(vaultName(vaultAddress)))) {
-    await app.secrets.set(vaultName(vaultAddress), oldVault);
-    if (await app.secrets.get(vaultName(vaultAddress)) !== oldVault) throw new Error('Could not migrate the existing signing key.');
-    await markVault(app, vaultAddress, true);
-  }
-  if (!(await app.store.set(WALLETS, wallets))) throw new Error('Could not save wallet list.');
-  if (initial) await app.store.set(ACTIVE, initial);
-  if (oldVault) await app.secrets.delete(VAULT);
-  return wallets;
+  return Array.isArray(saved) ? saved.filter((item) => isAddress(item?.address)) : [];
 }
 
 async function activeWallet(app: any): Promise<WalletEntry | null> {
@@ -95,24 +74,19 @@ async function saveSigningKey(app: any, who: Hex, vault: string) {
 // Keychain and never triggers its access prompts. The secret itself is read
 // only when signing: payments, swaps, bridges and key export.
 const KEY_FLAGS = 'key-flags-v1';
-type KeyFlags = { vaults: Record<string, boolean>; legacyAddress: string | null; infuraPresent: boolean };
+type KeyFlags = { vaults: Record<string, boolean>; infuraPresent: boolean };
 async function readKeyFlags(app: any): Promise<KeyFlags> {
   const saved = await app.store.get(KEY_FLAGS);
   return saved && typeof saved === 'object' && typeof saved.vaults === 'object'
-    ? { vaults: saved.vaults, legacyAddress: saved.legacyAddress ?? null, infuraPresent: !!saved.infuraPresent }
-    : { vaults: {}, legacyAddress: null, infuraPresent: false };
+    ? { vaults: saved.vaults, infuraPresent: !!saved.infuraPresent }
+    : { vaults: {}, infuraPresent: false };
 }
 async function writeKeyFlags(app: any, flags: KeyFlags) { await app.store.set(KEY_FLAGS, flags); }
 async function markVault(app: any, who: string | null | undefined, present: boolean) {
   if (!who) return;
   const flags = await readKeyFlags(app);
   const id = who.toLowerCase();
-  if (present) flags.vaults[id] = true; else delete flags.vaults[id];
-  await writeKeyFlags(app, flags);
-}
-async function markLegacyKey(app: any, address: string | null) {
-  const flags = await readKeyFlags(app);
-  flags.legacyAddress = address;
+  flags.vaults[id] = present;
   await writeKeyFlags(app, flags);
 }
 async function markInfura(app: any, present: boolean) {
@@ -162,6 +136,12 @@ async function readContacts(app: any): Promise<Counterparty[]> {
 async function readPayments(app: any) {
   const saved = await app.store.get(PAYMENTS);
   return Array.isArray(saved) ? saved : [];
+}
+
+async function ensureNonceAvailable(app: any, sender: Hex, nonce: number) {
+  const payments = await readPayments(app);
+  if (payments.some((item) => item.status === 'pending' && item.sender?.toLowerCase() === sender.toLowerCase() && Number.isInteger(item.nonce) && item.nonce >= nonce))
+    throw new Error('A previous transaction has an unknown status. Check its hash before sending another transaction.');
 }
 
 async function refreshPendingPayments(app: any) {
@@ -253,6 +233,7 @@ async function tronBalances(who: Hex) {
 // Tool-specific router calldata cannot be decoded generically, so it is
 // pinned to the confirmed contract instead.
 const APPROVE_SELECTOR = '095ea7b3';
+function bridgeUnavailable(): void { throw new Error('Bridge temporarily unavailable: route verification is not supported.'); }
 function checkEthBridgeTransaction(bridge: PendingBridge, tx: { to?: unknown; data?: unknown; value?: unknown }) {
   const to = typeof tx.to === 'string' ? tx.to.toLowerCase() : '';
   const data = typeof tx.data === 'string' ? tx.data.replace(/^0x/, '').toLowerCase() : '';
@@ -264,7 +245,7 @@ function checkEthBridgeTransaction(bridge: PendingBridge, tx: { to?: unknown; da
     if (data.slice(0, 8) !== APPROVE_SELECTOR) throw new Error('Rejected: unexpected token contract call.');
     const spender = `0x${data.slice(32, 72)}`;
     const approved = BigInt(`0x${data.slice(72, 136)}`);
-    if (spender !== router || approved !== bridge.amountIn) throw new Error('Rejected: token approval does not match the confirmed route.');
+    if (spender !== router || (approved !== 0n && approved !== bridge.amountIn)) throw new Error('Rejected: token approval does not match the confirmed route.');
   } else if (to !== router) throw new Error('Rejected: unknown bridge contract.');
 }
 function checkTronBridgeTransaction(bridge: PendingBridge, transaction: any) {
@@ -273,8 +254,8 @@ function checkTronBridgeTransaction(bridge: PendingBridge, transaction: any) {
   const entry = contracts[0];
   if (entry?.type !== 'TriggerSmartContract') throw new Error('Rejected: unexpected TRON transaction type.');
   const body = entry.parameter?.value ?? {};
-  const owner = String(body.ownerAddress ?? '');
-  const contract = String(body.contractAddress ?? '');
+  const owner = TronWeb.address.fromHex(String(body.owner_address ?? ''));
+  const contract = TronWeb.address.fromHex(String(body.contract_address ?? ''));
   const data = String(body.data ?? '').replace(/^0x/, '').toLowerCase();
   const router = String(bridge.quote.estimate.approvalAddress ?? '');
   if (owner !== bridge.source) throw new Error('Rejected: transaction owner does not match the source wallet.');
@@ -284,7 +265,7 @@ function checkTronBridgeTransaction(bridge: PendingBridge, transaction: any) {
     if (data.slice(0, 8) !== APPROVE_SELECTOR) throw new Error('Rejected: unexpected TRC-20 contract call.');
     const spender = `0x${data.slice(32, 72)}`;
     const approved = BigInt(`0x${data.slice(72, 136)}`);
-    if (spender !== TronWeb.address.toHex(router).replace(/^0x41/, '0x') || approved !== bridge.amountIn) throw new Error('Rejected: TRC-20 approval does not match the confirmed route.');
+    if (spender !== TronWeb.address.toHex(router).toLowerCase().replace(/^41/, '0x') || (approved !== 0n && approved !== bridge.amountIn)) throw new Error('Rejected: TRC-20 approval does not match the confirmed route.');
   } else if (contract !== router) throw new Error('Rejected: unknown TRON bridge contract.');
 }
 function guardedWalletClient(bridge: PendingBridge, client: any) {
@@ -318,6 +299,7 @@ export const api = {
     return overview;
   },
   async quoteBridge({ walletAddress, value, direction }: { walletAddress: unknown; value: unknown; direction: unknown }, app: any) {
+    bridgeUnavailable();
     if (sending) throw new Error('Another transaction is already being sent.');
     const who = address(walletAddress);
     if ((await activeWallet(app))?.address.toLowerCase() !== who.toLowerCase()) throw new Error('Selected wallet changed.');
@@ -349,6 +331,7 @@ export const api = {
     return { id, source, destination, direction, amountIn: humanAmount, estimatedOut: formatUnits(BigInt(quote.estimate.toAmount), 6), minOut: formatUnits(minOut, 6), route: quote.toolDetails?.name ?? quote.tool, routeFee: formatUnits(routeFee, 6), estimatedGas: formatUnits(gasAmount, gasUnits), gasToken, destinationReady, expiresAt: new Date(Date.now() + 180_000).toISOString() };
   },
   async executeBridge({ quoteId, password, locale }: { quoteId: unknown; password: unknown; locale?: unknown }, app: any) {
+    bridgeUnavailable();
     if (sending) throw new Error('Another transaction is already being sent.');
     sending = true;
     let sourceHash = '';
@@ -461,9 +444,7 @@ export const api = {
     const who = address(walletAddress);
     const wallets = await walletList(app);
     if (!wallets.some((item) => item.address.toLowerCase() === who.toLowerCase())) throw new Error('Wallet is not in the list.');
-    const oldKey = await app.secrets.get(KEY);
-    if (await app.secrets.get(vaultName(who)) || (oldKey && privateKeyToAccount(oldKey).address.toLowerCase() === who.toLowerCase()))
-      throw new Error('Remove the signing key before removing this wallet.');
+    if (await app.secrets.get(vaultName(who))) throw new Error('Remove the signing key before removing this wallet.');
     const remaining = wallets.filter((item) => item.address.toLowerCase() !== who.toLowerCase());
     if (!(await app.store.set(WALLETS, remaining))) throw new Error('Could not remove wallet.');
     if ((await app.store.get(ACTIVE))?.toLowerCase() === who.toLowerCase()) await app.store.set(ACTIVE, remaining[0]?.address ?? null);
@@ -497,7 +478,7 @@ export const api = {
     const eth = ethResult.status === 'fulfilled' ? ethResult.value : null;
     const usdt = usdtResult.status === 'fulfilled' ? usdtResult.value : null;
     const usdc = usdcResult.status === 'fulfilled' ? usdcResult.value : null;
-    const saved = await app.store.get(overviewName(who)) ?? await app.store.get(OVERVIEW);
+    const saved = await app.store.get(overviewName(who));
     const previous = saved?.address?.toLowerCase() === who.toLowerCase() ? saved : null;
     const overview = {
       address: who,
@@ -530,8 +511,7 @@ export const api = {
     const active = await activeWallet(app);
     const activeAddress = active?.address ?? null;
     const savedOverview = activeAddress ? await app.store.get(overviewName(activeAddress)) : null;
-    const oldOverview = !savedOverview && activeAddress ? await app.store.get(OVERVIEW) : null;
-    const cachedOverview = savedOverview ?? (oldOverview?.address?.toLowerCase() === activeAddress?.toLowerCase() ? oldOverview : null);
+    const cachedOverview = savedOverview;
     const cachedTron = activeAddress ? await app.store.get(tronOverviewName(activeAddress)) : null;
     // Startup never reads Keychain: presence flags live in the plain store
     // and are learned when a secret is actually used (see savedVault and the
@@ -540,29 +520,7 @@ export const api = {
     const flags = await readKeyFlags(app);
     const knownVault = activeAddress ? flags.vaults[activeAddress.toLowerCase()] : undefined;
     const hasVault = knownVault === undefined ? true : !!knownVault;
-    const needsPasswordSetup = !!(activeAddress && flags.legacyAddress && flags.legacyAddress.toLowerCase() === activeAddress.toLowerCase());
-    return { wallets, activeAddress, cachedOverview, cachedTron, tronAddress: activeAddress ? tronAddress(activeAddress) : null, signerAddress: hasVault ? activeAddress : needsPasswordSetup ? flags.legacyAddress : null, hasInfuraKey: flags.infuraPresent, hasPaymentPassword: hasVault, needsPasswordSetup, keychainAvailable: true };
-  },
-  async setPaymentPassword({ password }: { password: unknown }, app: any) {
-    const chosen = paymentPassword(password);
-    const selected = await activeWallet(app);
-    if (!selected) throw new Error('Select a wallet first.');
-    const target = vaultName(selected.address);
-    const existing = await app.secrets.get(target);
-    if (existing) {
-      await decryptKey(parseVault(existing), chosen);
-      const oldKey = await app.secrets.get(KEY);
-      if (oldKey && privateKeyToAccount(oldKey).address.toLowerCase() === selected.address.toLowerCase() && !(await app.secrets.delete(KEY))) throw new Error('Could not remove the old key.');
-      await markLegacyKey(app, null);
-      return true;
-    }
-    const legacy = await app.secrets.get(KEY);
-    if (!legacy || privateKeyToAccount(legacy).address.toLowerCase() !== selected.address.toLowerCase()) throw new Error('Signing key was not found for this wallet.');
-    await app.secrets.set(target, await encryptKey(legacy as Hex, chosen));
-    if (!(await app.secrets.delete(KEY))) throw new Error('Зашифрованный ключ сохранён, но старую копию удалить не удалось. Повторите настройку пароля.');
-    await markVault(app, selected.address, true);
-    await markLegacyKey(app, null);
-    return true;
+    return { wallets, activeAddress, cachedOverview, cachedTron, tronAddress: activeAddress ? tronAddress(activeAddress) : null, signerAddress: hasVault ? activeAddress : null, hasInfuraKey: flags.infuraPresent, hasPaymentPassword: hasVault, keychainAvailable: true };
   },
   async listCounterparties(_: unknown, app: any) {
     return (await readContacts(app)).sort((a, b) => (b.lastPaymentAt ?? b.createdAt).localeCompare(a.lastPaymentAt ?? a.createdAt));
@@ -586,8 +544,7 @@ export const api = {
   },
   async listPayments({ walletAddress }: { walletAddress: unknown }, app: any) {
     const who = address(walletAddress);
-    const legacyAddress = await app.store.get(WATCH);
-    return (await refreshPendingPayments(app)).filter((item) => (item.sender ?? legacyAddress)?.toLowerCase() === who.toLowerCase()).slice(0, 20);
+    return (await refreshPendingPayments(app)).filter((item) => item.sender?.toLowerCase() === who.toLowerCase()).slice(0, 20);
   },
   async saveInfuraKey({ key }: { key: unknown }, app: any) {
     if (typeof key !== 'string' || !/^[a-zA-Z0-9_-]{16,128}$/.test(key.trim())) throw new Error('Некорректный ключ Infura.');
@@ -603,8 +560,6 @@ export const api = {
     const selected = await activeWallet(app);
     if (selected && selected.address.toLowerCase() !== account.address.toLowerCase()) throw new Error('This key belongs to another address. Select that wallet first.');
     if (await app.secrets.get(vaultName(account.address))) throw new Error('This wallet already has a signing key.');
-    const oldKey = await app.secrets.get(KEY);
-    if (oldKey && privateKeyToAccount(oldKey).address.toLowerCase() === account.address.toLowerCase()) throw new Error('Protect the existing key with a password instead.');
     const vault = await encryptKey(key, chosen);
     await saveSigningKey(app, account.address, vault);
     return { address: account.address };
@@ -633,8 +588,6 @@ export const api = {
     const selected = await activeWallet(app);
     if (selected && selected.address.toLowerCase() !== account.address.toLowerCase()) throw new Error('This key belongs to another address. Select that wallet first.');
     if (await app.secrets.get(vaultName(account.address))) throw new Error('This wallet already has a signing key.');
-    const oldKey = await app.secrets.get(KEY);
-    if (oldKey && privateKeyToAccount(oldKey).address.toLowerCase() === account.address.toLowerCase()) throw new Error('Protect the existing key with a password instead.');
     const vault = await encryptKey(key, chosen);
     await saveSigningKey(app, account.address, vault);
     return { address: account.address };
@@ -687,19 +640,15 @@ export const api = {
     const selected = await activeWallet(app);
     if (!selected) throw new Error('Select a wallet first.');
     const stored = await app.secrets.get(vaultName(selected.address));
-    const oldKey = await app.secrets.get(KEY);
-    const legacy = oldKey && privateKeyToAccount(oldKey).address.toLowerCase() === selected.address.toLowerCase() ? oldKey : null;
-    if (!stored && !legacy) throw new Error('Ключ не найден.');
+    if (!stored) throw new Error('Ключ не найден.');
     const english = locale === 'en';
     const confirmed = await app.dialog.confirm(english ? 'Remove this signing key?' : 'Удалить ключ подписи?', {
       detail: english ? `${selected.address}\nMake sure you have a backup of the private key. This cannot be undone.` : `${selected.address}\nУбедитесь, что у вас есть резервная копия приватного ключа. Это действие не отменить.`,
       ok: english ? 'Remove' : 'Удалить', cancel: english ? 'Cancel' : 'Отмена',
     });
     if (!confirmed) return false;
-    if (stored && !(await app.secrets.delete(vaultName(selected.address)))) throw new Error('Could not remove the key from Keychain.');
-    if (legacy && !(await app.secrets.delete(KEY))) throw new Error('Could not remove the old key from Keychain.');
+    if (!(await app.secrets.delete(vaultName(selected.address)))) throw new Error('Could not remove the key from Keychain.');
     await markVault(app, selected.address, false);
-    if (legacy) await markLegacyKey(app, null);
     return true;
   },
   async transactionStatus({ txHash }: { txHash: unknown }, app: any) {
@@ -791,23 +740,21 @@ export const api = {
       await publicClient.simulateContract({ address: ROUTER, abi: ROUTER_ABI, functionName: 'exactInputSingle', args: [params], account });
       const gas = await publicClient.estimateContractGas({ address: ROUTER, abi: ROUTER_ABI, functionName: 'exactInputSingle', args: [params], account });
       if (await publicClient.getBalance({ address: account.address }) < gas * fees.maxFeePerGas) throw new Error('Not enough ETH for the swap network fee.');
-      const nonce = await publicClient.getTransactionCount({ address: account.address });
+      const nonce = await publicClient.getTransactionCount({ address: account.address, blockTag: 'pending' });
+      await ensureNonceAvailable(app, account.address, nonce);
       const serialized = await walletClient.signTransaction({ account, chain: mainnet, to: ROUTER, data: encodeFunctionData({ abi: ROUTER_ABI, functionName: 'exactInputSingle', args: [params] }), nonce, gas: gas * 12n / 10n, maxFeePerGas: fees.maxFeePerGas, maxPriorityFeePerGas: fees.maxPriorityFeePerGas });
       const transactionHash = keccak256(serialized);
+      const submittedAt = new Date().toISOString();
+      const previous = await readPayments(app);
+      const payments = [{ kind: 'swap', hash: transactionHash, nonce, sender: account.address, recipient: account.address, token: quote.tokenIn, tokenOut: tokenOutSymbol, amount: formatUnits(quote.amountIn, 6), expectedOut: formatUnits(quote.quotedOut, 6), minOut: formatUnits(minOut, 6), description: '', counterparty: '', submittedAt, date: null, status: 'pending' }, ...previous].slice(0, 100);
+      if (!(await app.store.set(PAYMENTS, payments))) throw new Error('Could not save the transaction; swap was not sent.');
       let submitted = true;
       try { await publicClient.sendRawTransaction({ serializedTransaction: serialized }); }
       catch { submitted = false; }
-      let metadataSaved = false;
-      try {
-        const submittedAt = new Date().toISOString();
-        const previous = await readPayments(app);
-        const payments = [{ kind: 'swap', hash: transactionHash, sender: account.address, recipient: account.address, token: quote.tokenIn, tokenOut: tokenOutSymbol, amount: formatUnits(quote.amountIn, 6), expectedOut: formatUnits(quote.quotedOut, 6), minOut: formatUnits(minOut, 6), description: '', counterparty: '', submittedAt, date: null, status: 'pending' }, ...previous].slice(0, 100);
-        metadataSaved = await app.store.set(PAYMENTS, payments);
-      } catch { /* The transaction was already sent. */ }
       if (!submitted) throw new Error(locale === 'en' ? `The swap transaction may already be sent: ${transactionHash}. Check its status in History before retrying.` : `Транзакция обмена могла быть отправлена: ${transactionHash}. Проверьте её статус в истории, прежде чем повторять.`);
-      return { hash: transactionHash, approvalHashes: approvals, metadataSaved };
+      return { hash: transactionHash, approvalHashes: approvals, metadataSaved: true };
     } catch (error: any) {
-      if (approvals.length) throw new Error(`${locale === 'en' ? 'Swap was not sent. Approval transaction(s)' : 'Обмен не отправлен. Транзакции разрешения'}: ${approvals.join(', ')}. ${error?.message ?? ''}`);
+      if (approvals.length) throw new Error(`${locale === 'en' ? 'Approval transaction(s)' : 'Транзакции разрешения'}: ${approvals.join(', ')}. ${error?.message ?? ''}`);
       throw error;
     } finally { sending = false; }
   },
@@ -849,21 +796,19 @@ export const api = {
       // Sign before broadcasting so the hash is known even if the RPC answer
       // is lost: an accepted-but-unconfirmed transaction must never look like
       // "nothing was sent" and invite a duplicate payment.
-      const nonce = await network(() => publicClient.getTransactionCount({ address: account.address }));
+      const nonce = await network(() => publicClient.getTransactionCount({ address: account.address, blockTag: 'pending' }));
+      await ensureNonceAvailable(app, account.address, nonce);
       const serialized = await walletClient.signTransaction({ account, chain: mainnet, to: contract, data: encodeFunctionData({ abi: ABI, functionName: 'transfer', args: [to, rawAmount] }), nonce, gas, maxFeePerGas: fees.maxFeePerGas, maxPriorityFeePerGas: fees.maxPriorityFeePerGas });
       const transactionHash = keccak256(serialized);
+      const submittedAt = new Date().toISOString();
+      const previous = await readPayments(app);
+      const payments = [{ hash: transactionHash, nonce, sender: from, recipient: to, token: symbol, amount: humanAmount, description: note, counterparty: contact?.name ?? '', submittedAt, date: null, status: 'pending' }, ...previous].slice(0, 100);
+      if (!(await app.store.set(PAYMENTS, payments))) throw new Error('Could not save the transaction; payment was not sent.');
       let submitted = true;
       try { await network(() => publicClient.sendRawTransaction({ serializedTransaction: serialized })); }
       catch { submitted = false; }
-      const submittedAt = new Date().toISOString();
-      let metadataSaved = false;
-      try {
-        const previous = await readPayments(app);
-        const payments = [{ hash: transactionHash, sender: from, recipient: to, token: symbol, amount: humanAmount, description: note, counterparty: contact?.name ?? '', submittedAt, date: null, status: 'pending' }, ...previous].slice(0, 100);
-        metadataSaved = await app.store.set(PAYMENTS, payments);
-      } catch { /* The transaction was already sent. */ }
       if (!submitted) throw new Error(english ? `The transaction may already be sent: ${transactionHash}. Check its status in History before retrying.` : `Транзакция могла быть отправлена: ${transactionHash}. Проверьте её статус в истории, прежде чем повторять.`);
-      return { hash: transactionHash, submittedAt, metadataSaved };
+      return { hash: transactionHash, submittedAt, metadataSaved: true };
     } finally { sending = false; }
   },
 };

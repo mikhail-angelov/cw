@@ -14,7 +14,7 @@
   "api": {
     "disable": ["*"],
     "origins": {
-      "file://*": ["walletState", "saveWatchAddress", "selectWallet", "removeWallet", "saveInfuraKey", "setPaymentPassword", "importWallet", "importCwgKey", "createWallet", "deleteWallet", "listCounterparties", "saveCounterparty", "deleteCounterparty", "listPayments", "listBridges", "transactionStatus", "sendToken", "quoteSwap", "executeSwap", "quoteBridge", "executeBridge", "copyWalletAddress", "copyTronAddress", "copyPrivateKey", "inspectAddress", "inspectTron", "loadTransferHistory", "dialog.confirm"]
+      "file://*": ["walletState", "saveWatchAddress", "selectWallet", "removeWallet", "saveInfuraKey", "importWallet", "importCwgKey", "createWallet", "deleteWallet", "listCounterparties", "saveCounterparty", "deleteCounterparty", "listPayments", "listBridges", "transactionStatus", "sendToken", "quoteSwap", "executeSwap", "quoteBridge", "executeBridge", "copyWalletAddress", "copyTronAddress", "copyPrivateKey", "inspectAddress", "inspectTron", "loadTransferHistory", "dialog.confirm"]
     }
   }
 }
