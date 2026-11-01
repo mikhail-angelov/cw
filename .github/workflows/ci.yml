@@ -75,8 +75,9 @@ jobs:
           $archive = 'tinyjs-windows-x86_64.zip'
           $zip = Join-Path $env:RUNNER_TEMP $archive
           Invoke-WebRequest "$base/$archive" -OutFile $zip
-          $checksums = (Invoke-WebRequest "$base/checksums.txt").Content
-          $entry = $checksums -split "`n" | Where-Object { $_ -match "^[0-9a-fA-F]{64}\s+\*?$archive\s*$" }
+          $checksums = Join-Path $env:RUNNER_TEMP 'checksums.txt'
+          Invoke-WebRequest "$base/checksums.txt" -OutFile $checksums
+          $entry = Get-Content $checksums | Where-Object { $_ -match "^[0-9a-fA-F]{64}\s+\*?$archive\s*$" }
           if (@($entry).Count -ne 1) { throw 'Missing or ambiguous tinyjs checksum' }
           $expected = ($entry -split '\s+')[0]
           if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne $expected) { throw 'tinyjs checksum mismatch' }
