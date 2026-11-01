@@ -95,31 +95,28 @@ async function saveSigningKey(app: any, who: Hex, vault: string) {
 // Keychain and never triggers its access prompts. The secret itself is read
 // only when signing: payments, swaps, bridges and key export.
 const KEY_FLAGS = 'key-flags-v1';
-type KeyFlags = { seeded: boolean; vaults: Record<string, boolean>; legacyAddress: string | null; infuraPresent: boolean };
+type KeyFlags = { vaults: Record<string, boolean>; legacyAddress: string | null; infuraPresent: boolean };
 async function readKeyFlags(app: any): Promise<KeyFlags> {
   const saved = await app.store.get(KEY_FLAGS);
   return saved && typeof saved === 'object' && typeof saved.vaults === 'object'
-    ? { seeded: !!saved.seeded, vaults: saved.vaults, legacyAddress: saved.legacyAddress ?? null, infuraPresent: !!saved.infuraPresent }
-    : { seeded: false, vaults: {}, legacyAddress: null, infuraPresent: false };
+    ? { vaults: saved.vaults, legacyAddress: saved.legacyAddress ?? null, infuraPresent: !!saved.infuraPresent }
+    : { vaults: {}, legacyAddress: null, infuraPresent: false };
 }
 async function writeKeyFlags(app: any, flags: KeyFlags) { await app.store.set(KEY_FLAGS, flags); }
 async function markVault(app: any, who: string | null | undefined, present: boolean) {
   if (!who) return;
   const flags = await readKeyFlags(app);
-  flags.seeded = true;
   const id = who.toLowerCase();
   if (present) flags.vaults[id] = true; else delete flags.vaults[id];
   await writeKeyFlags(app, flags);
 }
 async function markLegacyKey(app: any, address: string | null) {
   const flags = await readKeyFlags(app);
-  flags.seeded = true;
   flags.legacyAddress = address;
   await writeKeyFlags(app, flags);
 }
 async function markInfura(app: any, present: boolean) {
   const flags = await readKeyFlags(app);
-  flags.seeded = true;
   flags.infuraPresent = present;
   await writeKeyFlags(app, flags);
 }
@@ -227,6 +224,7 @@ async function clients(app: any) {
 }
 async function savedVault(app: any, who: Hex): Promise<Vault> {
   const value = await app.secrets.get(vaultName(who));
+  try { await markVault(app, who, !!value); } catch { /* Flag updates must never break signing. */ }
   if (!value) throw new Error('Сначала добавьте ключ и пароль платежа.');
   return parseVault(value);
 }
@@ -535,24 +533,13 @@ export const api = {
     const oldOverview = !savedOverview && activeAddress ? await app.store.get(OVERVIEW) : null;
     const cachedOverview = savedOverview ?? (oldOverview?.address?.toLowerCase() === activeAddress?.toLowerCase() ? oldOverview : null);
     const cachedTron = activeAddress ? await app.store.get(tronOverviewName(activeAddress)) : null;
-    let flags = await readKeyFlags(app);
-    let keychainAvailable = true;
-    // Vault presence is probed once per address (reading an absent item does
-    // not prompt), so every wallet with a stored key stays usable after the
-    // update. The legacy key and the optional Infura key are probed once ever.
-    if (activeAddress && !(activeAddress.toLowerCase() in flags.vaults)) {
-      try { flags.vaults[activeAddress.toLowerCase()] = !!(await app.secrets.get(vaultName(activeAddress))); }
-      catch { keychainAvailable = false; }
-    }
-    if (!flags.seeded) {
-      try { const oldKey = await app.secrets.get(KEY); flags.legacyAddress = oldKey ? privateKeyToAccount(oldKey).address : null; }
-      catch { keychainAvailable = false; }
-      try { flags.infuraPresent = !!(await app.secrets.get(INFURA)); } catch { /* Optional; public RPC is the default. */ }
-      flags.seeded = true;
-    }
-    if (!keychainAvailable) return { wallets, activeAddress, cachedOverview, cachedTron, tronAddress: activeAddress ? tronAddress(activeAddress) : null, signerAddress: null, hasInfuraKey: false, hasPaymentPassword: false, needsPasswordSetup: false, keychainAvailable: false };
-    try { await writeKeyFlags(app, flags); } catch { /* Retry on the next launch. */ }
-    const hasVault = !!(activeAddress && flags.vaults[activeAddress.toLowerCase()]);
+    // Startup never reads Keychain: presence flags live in the plain store
+    // and are learned when a secret is actually used (see savedVault and the
+    // key setup actions). An unknown address is reported optimistically so an
+    // existing install keeps working right after the update.
+    const flags = await readKeyFlags(app);
+    const knownVault = activeAddress ? flags.vaults[activeAddress.toLowerCase()] : undefined;
+    const hasVault = knownVault === undefined ? true : !!knownVault;
     const needsPasswordSetup = !!(activeAddress && flags.legacyAddress && flags.legacyAddress.toLowerCase() === activeAddress.toLowerCase());
     return { wallets, activeAddress, cachedOverview, cachedTron, tronAddress: activeAddress ? tronAddress(activeAddress) : null, signerAddress: hasVault ? activeAddress : needsPasswordSetup ? flags.legacyAddress : null, hasInfuraKey: flags.infuraPresent, hasPaymentPassword: hasVault, needsPasswordSetup, keychainAvailable: true };
   },
