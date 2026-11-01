@@ -55,10 +55,10 @@ async function addWallet(app: any, who: Hex, label = '') {
   return next.find((item) => item.address.toLowerCase() === who.toLowerCase())!;
 }
 
-async function saveSigningKey(app: any, who: Hex, vault: string) {
+async function saveSigningKey(app: any, who: Hex, vault: string, label = '') {
   const secret = vaultName(who);
   await app.secrets.set(secret, vault);
-  try { await addWallet(app, who); await markVault(app, who, true); }
+  try { await addWallet(app, who, label); await markVault(app, who, true); }
   catch (error) { await app.secrets.delete(secret); throw error; }
 }
 
@@ -235,6 +235,15 @@ export const api = {
     if (label !== undefined && (typeof label !== 'string' || label.length > 50)) throw new Error('Wallet name must be at most 50 characters.');
     return addWallet(app, who, typeof label === 'string' ? label.trim() : '');
   },
+  async renameWallet({ walletAddress, label }: { walletAddress: unknown; label: unknown }, app: any) {
+    const who = address(walletAddress);
+    if (typeof label !== 'string' || label.length > 50) throw new Error('Wallet name must be at most 50 characters.');
+    const wallets = await walletList(app);
+    if (!wallets.some((item) => item.address.toLowerCase() === who.toLowerCase())) throw new Error('Wallet is not in the list.');
+    const next = wallets.map((item) => item.address.toLowerCase() === who.toLowerCase() ? { ...item, label: label.trim() } : item);
+    if (!(await app.store.set(WALLETS, next))) throw new Error('Could not save wallet.');
+    return true;
+  },
   async selectWallet({ walletAddress }: { walletAddress: unknown }, app: any) {
     const who = address(walletAddress);
     const wallets = await walletList(app);
@@ -394,12 +403,19 @@ export const api = {
     await saveSigningKey(app, account.address, vault);
     return { address: account.address };
   },
-  async createWallet({ password }: { password: unknown }, app: any) {
+  async createWallet({ password, label }: { password: unknown; label?: unknown }, app: any) {
     const chosen = paymentPassword(password);
+    if (label !== undefined && (typeof label !== 'string' || label.length > 50)) throw new Error('Wallet name must be at most 50 characters.');
     const key = generatePrivateKey();
     const account = privateKeyToAccount(key);
     const vault = await encryptKey(key, chosen);
-    await saveSigningKey(app, account.address, vault);
+    await saveSigningKey(app, account.address, vault, typeof label === 'string' ? label.trim() : '');
+    const fetchedAt = new Date().toISOString();
+    // Cache initialization must never prevent the newly generated key reaching the user.
+    try {
+      await app.store.set(overviewName(account.address), { address: account.address, eth: '0', usdt: '0', usdc: '0', staleFields: [], fetchedAt });
+      await app.store.set(tronOverviewName(account.address), { address: tronAddress(account.address), activated: false, trx: '0', usdt: '0', fetchedAt });
+    } catch { /* The UI can still display initial zero balances. */ }
     return { address: account.address, backupKey: key };
   },
   async copyWalletAddress({ walletAddress }: { walletAddress: unknown }, app: any) {
