@@ -3,7 +3,7 @@
   "name": "cw",
   "title": "CW Wallet",
   "id": "app.tinyjs.cw-wallet",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "minTinyjsVersion": "0.67.0",
   "size": "980x720",
   "backend": "generated/backend/main.js",
