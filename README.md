@@ -1,22 +1,22 @@
 # CW Wallet
 
-Компактное macOS-приложение для просмотра Ethereum и TRON, отправки USDT/USDC, обмена USDT ↔ USDC в Ethereum. Интерфейс доступен на русском и английском. Основа — [tinyjs](https://tinyjs.app/).
+A compact macOS app for viewing Ethereum and TRON balances, sending USDT/USDC, and swapping USDT ↔ USDC on Ethereum. The interface is available in Russian and English. Built with [tinyjs](https://tinyjs.app/).
 
-## Кошельки и безопасность
+## Wallets and security
 
-- Добавьте несколько своих публичных адресов и переключайтесь между ними вверху окна. Для просмотра балансов приватные ключи не нужны.
-- К каждому адресу можно отдельно добавить ключ подписи. Он шифруется паролем платежа с помощью scrypt и AES-GCM и хранится в macOS Keychain под ключом этого адреса. Пароль требуется вручную при каждом платеже; приложение его не сохраняет.
-- Адрес выбранного кошелька копируется одной кнопкой. Приватный ключ можно скопировать после ввода пароля, системной аутентификации и отдельного подтверждения. Если буфер не изменился, приложение очищает его через 30 секунд; менеджеры буфера и Universal Clipboard могут сохранить копию.
-- Удаление адреса не удаляет ключ: сначала удалите ключ отдельно.
-- Балансы читаются через публичный Ethereum RPC с резервным запросом к Blockscout. История переводов запрашивается **только** после нажатия «Загрузить историю» в разделе «История». Данные выбранного адреса не смешиваются с другими.
-- Для каждого выбранного Ethereum-адреса приложение показывает соответствующий TRON-адрес, полученный из того же открытого ключа, и его балансы TRX и официального USDT TRC-20. Баланс TRON читается через TronGrid. Это отдельная сеть: USDT в колонке Ethereum уже является ERC-20 и не нуждается в переносе.
-- Контрагенты и заметки к платежам хранятся локально в настройках приложения и не отправляются в блокчейн. Дата платежа появляется после подтверждения сетью. Платежи отправляются сразу после подтверждения в приложении.
-- Платежи поддерживают нативные USDT и USDC в Ethereum mainnet. Обмен использует прямые пулы Uniswap v3 с котировкой на 5 минут, минимумом к получению на 0,5% ниже котировки и блокировкой котировки хуже 1:1 более чем на 5%. Для первого обмена может потребоваться отдельная транзакция разрешения списания токена и ETH для комиссий сети; разрешение ограничено точной суммой. Перед отправкой приложение показывает адрес роутера, число разрешений и оценку максимальной комиссии. Реальный обмен средствами не входит в автоматические проверки.
-- Личный Infura Project ID необязателен: приложение использует публичный Ethereum RPC. Для отправки нужен только защищённый приватный ключ выбранного кошелька и пароль платежа, который вы задаёте сами (минимум 12 символов) и вводите каждый раз вручную. Для импорта из cwg нужны старый пароль cwg и новый пароль приложения. При создании нового кошелька сохраните показанный приватный ключ для резервной копии.
+- Add multiple public addresses and switch between them at the top of the window. Private keys are not required to view balances.
+- You can add a separate signing key for each address. It is encrypted with a payment password using scrypt and AES-GCM and stored in macOS Keychain under that address's key. The password must be entered manually for every payment; the app does not save it.
+- Copy the selected wallet address with one button. You can copy the private key after entering the password, completing system authentication, and giving separate confirmation. If the clipboard has not changed, the app clears it after 30 seconds; clipboard managers and Universal Clipboard may retain a copy.
+- Removing an address does not delete its key: delete the key separately first.
+- Balances are read through a public Ethereum RPC, with Blockscout as a fallback. Transfer history is requested **only** after clicking “Load history” in the History section. Data for the selected address is kept separate from other addresses.
+- For each selected Ethereum address, the app shows the corresponding TRON address derived from the same public key, along with its TRX and official USDT TRC-20 balances. TRON balances are read through TronGrid. This is a separate network: USDT in the Ethereum column is already ERC-20 and does not need to be transferred.
+- Counterparties and payment notes are stored locally in the app settings and are not sent to the blockchain. The payment date appears after network confirmation. Payments are sent immediately after confirmation in the app.
+- Payments support native USDT and USDC on Ethereum mainnet. Swaps use direct Uniswap v3 pools, with a quote valid for 5 minutes, a minimum received amount 0.5% below the quote, and a block on quotes more than 5% worse than 1:1. The first swap may require a separate token approval transaction and ETH for network fees; approval is limited to the exact amount. Before submission, the app shows the router address, the number of approvals, and the estimated maximum fee. Actual swaps using funds are not part of the automated checks.
+- A personal Infura Project ID is optional: the app uses a public Ethereum RPC. To send funds, you only need the selected wallet's protected private key and a payment password that you set yourself (at least 12 characters) and enter manually each time. Importing from cwg requires the old cwg password and a new app password. When creating a new wallet, save the displayed private key as a backup.
 
-## Локальная сборка
+## Local build
 
-Нужны Node.js 24, npm 11 и [tinyjs 0.67.0](https://github.com/tarwin/tinyjsapp/releases/tag/v0.67.0). Версия npm 11 применяет закреплённые обновления транзитивных зависимостей.
+Requires Node.js 24, npm 11, and [tinyjs 0.67.0](https://github.com/tarwin/tinyjsapp/releases/tag/v0.67.0). npm 11 applies the pinned transitive dependency overrides.
 
 ```sh
 npm ci
@@ -24,23 +24,23 @@ npm run build
 open 'dist/CW Wallet.app'
 ```
 
-Универсальный архив для Apple Silicon и Intel:
+Universal archive for Apple Silicon and Intel:
 
 ```sh
 npm run build -- --universal
 npm run package:mac
 ```
 
-## Релизы и Homebrew
+## Releases and Homebrew
 
-GitHub Actions проверяет TypeScript и JavaScript и собирает универсальное macOS-приложение. Тег `vX.Y.Z` должен совпадать с `version` в `tinyjs.json`; по тегу CI публикует GitHub Release с ZIP и SHA-256. Если в репозитории `cw` задан секрет `HOMEBREW_TAP_TOKEN` с правом `contents: write` для `mikhail-angelov/homebrew-tap`, стабильный релиз автоматически обновляет Cask `cw-wallet`.
+GitHub Actions checks TypeScript and JavaScript and builds a universal macOS app. The `vX.Y.Z` tag must match the `version` in `tinyjs.json`; CI publishes a GitHub Release with a ZIP and SHA-256 checksum when the tag is pushed. If the `cw` repository has a `HOMEBREW_TAP_TOKEN` secret with `contents: write` permission for `mikhail-angelov/homebrew-tap`, a stable release automatically updates the `cw-wallet` Cask.
 
-После первого релиза и обновления tap:
+After the first release and tap update:
 
 ```sh
 brew install --cask mikhail-angelov/tap/cw-wallet
 ```
 
-Сейчас сборка подписывается ad hoc и не нотарифицируется Apple. Homebrew сохраняет macOS quarantine; при первом запуске macOS может попросить вручную разрешить приложение в «Системные настройки → Конфиденциальность и безопасность». CI не отключает Gatekeeper. Для автоматического доверенного запуска потребуется Developer ID и notarization.
+The build is currently signed ad hoc and is not notarized by Apple. Homebrew preserves macOS quarantine; on first launch, macOS may ask you to manually allow the app in System Settings → Privacy & Security. CI does not disable Gatekeeper. A Developer ID and notarization are required for automatic trusted launch.
 
-Исходный CLI остаётся в `cli.js`.
+The original CLI remains in `cli.js`.
