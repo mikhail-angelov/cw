@@ -61,6 +61,7 @@ async function walletList(app: any): Promise<WalletEntry[]> {
   if (oldVault && vaultAddress && !(await app.secrets.get(vaultName(vaultAddress)))) {
     await app.secrets.set(vaultName(vaultAddress), oldVault);
     if (await app.secrets.get(vaultName(vaultAddress)) !== oldVault) throw new Error('Could not migrate the existing signing key.');
+    await markVault(app, vaultAddress, true);
   }
   if (!(await app.store.set(WALLETS, wallets))) throw new Error('Could not save wallet list.');
   if (initial) await app.store.set(ACTIVE, initial);
@@ -85,8 +86,41 @@ async function addWallet(app: any, who: Hex, label = '') {
 async function saveSigningKey(app: any, who: Hex, vault: string) {
   const secret = vaultName(who);
   await app.secrets.set(secret, vault);
-  try { await addWallet(app, who); }
+  try { await addWallet(app, who); await markVault(app, who, true); }
   catch (error) { await app.secrets.delete(secret); throw error; }
+}
+
+// Key presence is mirrored in the plain store so app startup never touches
+// Keychain and never triggers its access prompts. The secret itself is read
+// only when signing: payments, swaps, bridges and key export.
+const KEY_FLAGS = 'key-flags-v1';
+type KeyFlags = { seeded: boolean; vaults: Record<string, boolean>; legacyAddress: string | null; infuraPresent: boolean };
+async function readKeyFlags(app: any): Promise<KeyFlags> {
+  const saved = await app.store.get(KEY_FLAGS);
+  return saved && typeof saved === 'object' && typeof saved.vaults === 'object'
+    ? { seeded: !!saved.seeded, vaults: saved.vaults, legacyAddress: saved.legacyAddress ?? null, infuraPresent: !!saved.infuraPresent }
+    : { seeded: false, vaults: {}, legacyAddress: null, infuraPresent: false };
+}
+async function writeKeyFlags(app: any, flags: KeyFlags) { await app.store.set(KEY_FLAGS, flags); }
+async function markVault(app: any, who: string | null | undefined, present: boolean) {
+  if (!who) return;
+  const flags = await readKeyFlags(app);
+  flags.seeded = true;
+  const id = who.toLowerCase();
+  if (present) flags.vaults[id] = true; else delete flags.vaults[id];
+  await writeKeyFlags(app, flags);
+}
+async function markLegacyKey(app: any, address: string | null) {
+  const flags = await readKeyFlags(app);
+  flags.seeded = true;
+  flags.legacyAddress = address;
+  await writeKeyFlags(app, flags);
+}
+async function markInfura(app: any, present: boolean) {
+  const flags = await readKeyFlags(app);
+  flags.seeded = true;
+  flags.infuraPresent = present;
+  await writeKeyFlags(app, flags);
 }
 
 function paymentPassword(value: unknown): string {
@@ -179,7 +213,8 @@ function tokenSymbol(value: unknown): TokenSymbol {
   return value;
 }
 async function clients(app: any) {
-  const key = await app.secrets.get(INFURA);
+  const flags = await readKeyFlags(app);
+  const key = flags.infuraPresent ? await app.secrets.get(INFURA) : null;
   const url = key ? `https://mainnet.infura.io/v3/${key}` : 'https://ethereum-rpc.publicnode.com';
   const publicClient = createPublicClient({ chain: mainnet, transport: http(url) });
   try {
@@ -444,16 +479,28 @@ export const api = {
     const oldOverview = !savedOverview && activeAddress ? await app.store.get(OVERVIEW) : null;
     const cachedOverview = savedOverview ?? (oldOverview?.address?.toLowerCase() === activeAddress?.toLowerCase() ? oldOverview : null);
     const cachedTron = activeAddress ? await app.store.get(tronOverviewName(activeAddress)) : null;
-    try {
-      const vault = activeAddress ? await app.secrets.get(vaultName(activeAddress)) : null;
-      const legacyKey = await app.secrets.get(KEY);
-      const legacyAddress = legacyKey ? privateKeyToAccount(legacyKey).address : null;
-      const needsPasswordSetup = !!legacyAddress && legacyAddress.toLowerCase() === activeAddress?.toLowerCase();
-      const infuraKey = await app.secrets.get(INFURA);
-      return { wallets, activeAddress, cachedOverview, cachedTron, tronAddress: activeAddress ? tronAddress(activeAddress) : null, signerAddress: vault ? parseVault(vault).address : needsPasswordSetup ? legacyAddress : null, hasInfuraKey: !!infuraKey, hasPaymentPassword: !!vault, needsPasswordSetup, keychainAvailable: true };
-    } catch {
-      return { wallets, activeAddress, cachedOverview, cachedTron, tronAddress: activeAddress ? tronAddress(activeAddress) : null, signerAddress: null, hasInfuraKey: false, hasPaymentPassword: false, needsPasswordSetup: false, keychainAvailable: false };
+    let flags = await readKeyFlags(app);
+    if (!flags.seeded) {
+      // One-time probe so an existing install keeps showing its key state.
+      // After this the startup path reads only the plain store.
+      const vaults = flags.vaults;
+      let keychainAvailable = true;
+      if (activeAddress) {
+        try { vaults[activeAddress.toLowerCase()] = !!(await app.secrets.get(vaultName(activeAddress))); }
+        catch { keychainAvailable = false; }
+      }
+      let legacyAddress: string | null = flags.legacyAddress;
+      try { const oldKey = await app.secrets.get(KEY); legacyAddress = oldKey ? privateKeyToAccount(oldKey).address : null; }
+      catch { keychainAvailable = false; }
+      let infuraPresent = flags.infuraPresent;
+      try { infuraPresent = !!(await app.secrets.get(INFURA)); } catch { /* Optional; public RPC is the default. */ }
+      if (!keychainAvailable) return { wallets, activeAddress, cachedOverview, cachedTron, tronAddress: activeAddress ? tronAddress(activeAddress) : null, signerAddress: null, hasInfuraKey: false, hasPaymentPassword: false, needsPasswordSetup: false, keychainAvailable: false };
+      flags = { seeded: true, vaults, legacyAddress, infuraPresent };
+      try { await writeKeyFlags(app, flags); } catch { /* Retry on the next launch. */ }
     }
+    const hasVault = !!(activeAddress && flags.vaults[activeAddress.toLowerCase()]);
+    const needsPasswordSetup = !!(activeAddress && flags.legacyAddress && flags.legacyAddress.toLowerCase() === activeAddress.toLowerCase());
+    return { wallets, activeAddress, cachedOverview, cachedTron, tronAddress: activeAddress ? tronAddress(activeAddress) : null, signerAddress: hasVault ? activeAddress : needsPasswordSetup ? flags.legacyAddress : null, hasInfuraKey: flags.infuraPresent, hasPaymentPassword: hasVault, needsPasswordSetup, keychainAvailable: true };
   },
   async setPaymentPassword({ password }: { password: unknown }, app: any) {
     const chosen = paymentPassword(password);
@@ -465,12 +512,15 @@ export const api = {
       await decryptKey(parseVault(existing), chosen);
       const oldKey = await app.secrets.get(KEY);
       if (oldKey && privateKeyToAccount(oldKey).address.toLowerCase() === selected.address.toLowerCase() && !(await app.secrets.delete(KEY))) throw new Error('Could not remove the old key.');
+      await markLegacyKey(app, null);
       return true;
     }
     const legacy = await app.secrets.get(KEY);
     if (!legacy || privateKeyToAccount(legacy).address.toLowerCase() !== selected.address.toLowerCase()) throw new Error('Signing key was not found for this wallet.');
     await app.secrets.set(target, await encryptKey(legacy as Hex, chosen));
     if (!(await app.secrets.delete(KEY))) throw new Error('Зашифрованный ключ сохранён, но старую копию удалить не удалось. Повторите настройку пароля.');
+    await markVault(app, selected.address, true);
+    await markLegacyKey(app, null);
     return true;
   },
   async listCounterparties(_: unknown, app: any) {
@@ -501,6 +551,7 @@ export const api = {
   async saveInfuraKey({ key }: { key: unknown }, app: any) {
     if (typeof key !== 'string' || !/^[a-zA-Z0-9_-]{16,128}$/.test(key.trim())) throw new Error('Некорректный ключ Infura.');
     await app.secrets.set(INFURA, key.trim());
+    await markInfura(app, true);
     return true;
   },
   async importWallet({ privateKey, password }: { privateKey: unknown; password: unknown }, app: any) {
@@ -606,6 +657,8 @@ export const api = {
     if (!confirmed) return false;
     if (stored && !(await app.secrets.delete(vaultName(selected.address)))) throw new Error('Could not remove the key from Keychain.');
     if (legacy && !(await app.secrets.delete(KEY))) throw new Error('Could not remove the old key from Keychain.');
+    await markVault(app, selected.address, false);
+    if (legacy) await markLegacyKey(app, null);
     return true;
   },
   async transactionStatus({ txHash }: { txHash: unknown }, app: any) {
