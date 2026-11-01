@@ -1,6 +1,7 @@
 import { copyFileSync, existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 
+if (process.platform === 'win32') process.exit(0);
 if (process.platform !== 'darwin') throw new Error('Setting the app icon requires macOS');
 const app = 'dist/CW Wallet.app';
 if (!existsSync(app)) throw new Error('Build the app first: npm run build');

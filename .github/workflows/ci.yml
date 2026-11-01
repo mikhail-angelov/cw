@@ -1,4 +1,4 @@
-name: macOS build and release
+name: Desktop build and release
 
 on:
   push:
@@ -55,9 +55,57 @@ jobs:
           path: release/*
           if-no-files-found: error
 
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm install -g npm@11
+      - run: npm ci
+      - name: Install pinned tinyjs
+        shell: pwsh
+        run: |
+          $base = 'https://github.com/tarwin/tinyjsapp/releases/download/v0.67.0'
+          $archive = 'tinyjs-windows-x86_64.zip'
+          $zip = Join-Path $env:RUNNER_TEMP $archive
+          Invoke-WebRequest "$base/$archive" -OutFile $zip
+          $checksums = (Invoke-WebRequest "$base/checksums.txt").Content
+          $entry = $checksums -split "`n" | Where-Object { $_ -match "^[0-9a-fA-F]{64}\s+\*?$archive\s*$" }
+          if (@($entry).Count -ne 1) { throw 'Missing or ambiguous tinyjs checksum' }
+          $expected = ($entry -split '\s+')[0]
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne $expected) { throw 'tinyjs checksum mismatch' }
+          $tinyjs = Join-Path $env:RUNNER_TEMP 'tinyjs'
+          Expand-Archive $zip -DestinationPath $tinyjs
+          $tinyjs | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - run: npm run build
+      - name: Package Windows app
+        shell: pwsh
+        run: |
+          $version = (Get-Content tinyjs.json -Raw | ConvertFrom-Json).version
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") { throw "Expected tag v$version" }
+          foreach ($file in 'dist/cw.exe', 'dist/launcher.exe') {
+            if (!(Test-Path $file)) { throw "Missing $file" }
+          }
+          New-Item -ItemType Directory -Force release | Out-Null
+          $name = "CW-Wallet-$version-windows-x86_64.zip"
+          Compress-Archive -Path dist/* -DestinationPath "release/$name"
+          $hash = (Get-FileHash "release/$name" -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText("$PWD/release/$name.sha256", "$hash  $name`n")
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cw-wallet-windows-x86_64
+          path: release/*
+          if-no-files-found: error
+
   release:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    needs: [build, build-windows]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -69,6 +117,10 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: cw-wallet-macos-universal
+          path: release
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: cw-wallet-windows-x86_64
           path: release
       - name: Publish release
         env:

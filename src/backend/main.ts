@@ -465,7 +465,7 @@ export const api = {
       ok: english ? 'Remove' : 'Удалить', cancel: english ? 'Cancel' : 'Отмена',
     });
     if (!confirmed) return false;
-    if (!(await app.secrets.delete(vaultName(selected.address)))) throw new Error('Could not remove the key from Keychain.');
+    if (!(await app.secrets.delete(vaultName(selected.address)))) throw new Error('Could not remove the key from secure storage.');
     await markVault(app, selected.address, false);
     return true;
   },
