@@ -1,4 +1,4 @@
-import { createPublicClient, createWalletClient, formatEther, formatUnits, getAddress, hexToBytes, http, isAddress, parseAbi, parseUnits, toHex, type Hex } from 'viem';
+import { createPublicClient, createWalletClient, encodeFunctionData, formatEther, formatUnits, getAddress, hexToBytes, http, isAddress, keccak256, parseAbi, parseUnits, toHex, type Hex } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { mainnet } from 'viem/chains';
 import { scryptAsync } from '@noble/hashes/scrypt.js';
@@ -38,7 +38,8 @@ const tronOverviewName = (who: string) => `tron-overview-v1:${who.toLowerCase()}
 let sending = false;
 let pendingSwap: { id: string; sender: Hex; tokenIn: TokenSymbol; amountIn: bigint; quotedOut: bigint; fee: number; createdAt: number } | null = null;
 type BridgeDirection = 'TRON_TO_ETH' | 'ETH_TO_TRON';
-let pendingBridge: { id: string; sender: Hex; source: string; destination: string; direction: BridgeDirection; amountIn: bigint; minOut: bigint; quote: any; createdAt: number } | null = null;
+type PendingBridge = { id: string; sender: Hex; source: string; destination: string; direction: BridgeDirection; amountIn: bigint; minOut: bigint; quote: any; createdAt: number };
+let pendingBridge: PendingBridge | null = null;
 
 type Vault = { version: 1; address: Hex; salt: Hex; iv: Hex; ciphertext: Hex };
 type WalletEntry = { address: Hex; label: string };
@@ -247,6 +248,53 @@ async function tronBalances(who: Hex) {
   const tokenEntry = account?.trc20?.flatMap((entry: Record<string, string>) => Object.entries(entry)).find(([contract]: [string, string]) => contract === TRON_USDT);
   return { address: tron, activated: !!account, trx: BigInt(account?.balance ?? 0), usdt: BigInt(tokenEntry?.[1] ?? 0) };
 }
+// Security guards: nothing is signed until the actual transaction matches the
+// route the user confirmed. The called contract must be the approval address
+// shown in the confirmation dialog, token approvals are exact-amount to that
+// contract only, and no native currency may ever move (USDT-only bridging).
+// Tool-specific router calldata cannot be decoded generically, so it is
+// pinned to the confirmed contract instead.
+const APPROVE_SELECTOR = '095ea7b3';
+function checkEthBridgeTransaction(bridge: PendingBridge, tx: { to?: unknown; data?: unknown; value?: unknown }) {
+  const to = typeof tx.to === 'string' ? tx.to.toLowerCase() : '';
+  const data = typeof tx.data === 'string' ? tx.data.replace(/^0x/, '').toLowerCase() : '';
+  const router = String(bridge.quote.estimate.approvalAddress ?? '').toLowerCase();
+  const value = BigInt((tx.value as bigint | undefined) ?? 0n);
+  if (!to || !router || !data) throw new Error('Rejected: the bridge transaction is incomplete.');
+  if (value !== 0n) throw new Error('Rejected: the route tries to transfer native currency.');
+  if (to === USDT.toLowerCase()) {
+    if (data.slice(0, 8) !== APPROVE_SELECTOR) throw new Error('Rejected: unexpected token contract call.');
+    const spender = `0x${data.slice(32, 72)}`;
+    const approved = BigInt(`0x${data.slice(72, 136)}`);
+    if (spender !== router || approved !== bridge.amountIn) throw new Error('Rejected: token approval does not match the confirmed route.');
+  } else if (to !== router) throw new Error('Rejected: unknown bridge contract.');
+}
+function checkTronBridgeTransaction(bridge: PendingBridge, transaction: any) {
+  const contracts = transaction?.raw_data?.contract;
+  if (!Array.isArray(contracts) || contracts.length !== 1) throw new Error('Rejected: unexpected TRON transaction shape.');
+  const entry = contracts[0];
+  if (entry?.type !== 'TriggerSmartContract') throw new Error('Rejected: unexpected TRON transaction type.');
+  const body = entry.parameter?.value ?? {};
+  const owner = String(body.ownerAddress ?? '');
+  const contract = String(body.contractAddress ?? '');
+  const data = String(body.data ?? '').replace(/^0x/, '').toLowerCase();
+  const router = String(bridge.quote.estimate.approvalAddress ?? '');
+  if (owner !== bridge.source) throw new Error('Rejected: transaction owner does not match the source wallet.');
+  if (BigInt(body.call_value ?? 0) !== 0n) throw new Error('Rejected: the route tries to transfer native TRX.');
+  if (!contract || !router || !data) throw new Error('Rejected: the bridge transaction is incomplete.');
+  if (contract === TRON_USDT) {
+    if (data.slice(0, 8) !== APPROVE_SELECTOR) throw new Error('Rejected: unexpected TRC-20 contract call.');
+    const spender = `0x${data.slice(32, 72)}`;
+    const approved = BigInt(`0x${data.slice(72, 136)}`);
+    if (spender !== TronWeb.address.toHex(router).replace(/^0x41/, '0x') || approved !== bridge.amountIn) throw new Error('Rejected: TRC-20 approval does not match the confirmed route.');
+  } else if (contract !== router) throw new Error('Rejected: unknown TRON bridge contract.');
+}
+function guardedWalletClient(bridge: PendingBridge, client: any) {
+  const guarded = Object.create(client);
+  guarded.sendTransaction = async (args: any) => { checkEthBridgeTransaction(bridge, args); return client.sendTransaction(args); };
+  return guarded;
+}
+
 async function bridgeClient(wallet?: any) {
   const client = createLiFiClient({ integrator: 'cw-wallet', providers: [TronProvider(wallet?.address?.startsWith('T') ? { getWallet: async () => wallet } : {}), EthereumProvider(wallet?.account ? { getWalletClient: async () => wallet, disableMessageSigning: true } : {})], rpcUrls: { [TRON_ID]: ['https://api.trongrid.io'], 1: ['https://ethereum-rpc.publicnode.com'] }, preloadChains: false, disableVersionCheck: true });
   if (wallet) {
@@ -290,6 +338,7 @@ export const api = {
     if (quote.action.fromChainId !== fromChain || quote.action.toChainId !== toChain || !same(quote.action.fromToken.address, fromToken, fromChain) || !same(quote.action.toToken.address, toToken, toChain) || !quote.action.fromAddress || !same(quote.action.fromAddress, source, fromChain) || !quote.action.toAddress || !same(quote.action.toAddress, destination, toChain) || BigInt(quote.action.fromAmount) !== amountIn) throw new Error('Bridge quote does not match the selected networks or addresses.');
     const route = convertQuoteToRoute(quote);
     if (route.steps.length !== 1 || route.steps[0].action.fromChainId !== fromChain || !quote.transactionRequest?.data) throw new Error('This bridge route is not supported by CW Wallet.');
+    if (!quote.estimate.approvalAddress || !quote.transactionRequest?.to || String(quote.transactionRequest.to).toLowerCase() !== String(quote.estimate.approvalAddress).toLowerCase()) throw new Error('This bridge route is not supported by CW Wallet.');
     const minOut = BigInt(quote.estimate.toAmountMin);
     if (minOut < amountIn * 95n / 100n) throw new Error('Bridge fees exceed 5% of the amount; transfer blocked.');
     const id = toHex(crypto.getRandomValues(new Uint8Array(16)));
@@ -347,7 +396,7 @@ export const api = {
       if ((await activeWallet(app))?.address.toLowerCase() !== bridge.sender.toLowerCase() || Date.now() - bridge.createdAt > 180_000) throw new Error('Wallet or quote changed. Request a new quote.');
       pendingBridge = null;
       const tronSigner = bridge.direction === 'TRON_TO_ETH' ? new TronWeb({ fullHost: 'https://api.trongrid.io' }) : null;
-      const wallet = tronSigner ? { address: bridge.source, signTransaction: (transaction: any) => tronSigner.trx.sign(transaction, key.slice(2)) } : createWalletClient({ account, chain: mainnet, transport: http(rpcUrl) });
+      const wallet = tronSigner ? { address: bridge.source, signTransaction: (transaction: any) => { checkTronBridgeTransaction(bridge, transaction); return tronSigner.trx.sign(transaction, key.slice(2)); } } : guardedWalletClient(bridge, createWalletClient({ account, chain: mainnet, transport: http(rpcUrl) }));
       const client = await bridgeClient(wallet);
       const route = convertQuoteToRoute(bridge.quote);
       let hashWrite: Promise<void> = Promise.resolve();
@@ -359,6 +408,13 @@ export const api = {
       };
       try {
         const finished = await executeRoute(client, route, { acceptExchangeRateUpdateHook: async ({ newToAmount }) => BigInt(newToAmount) >= bridge.minOut, updateRouteHook: (updated: any) => {
+          // The SDK can accept route updates silently within its slippage
+          // tolerance, so the confirmed minimum and the confirmed bridge
+          // contract are enforced here, before anything is signed.
+          const step = updated?.steps?.[0];
+          if (BigInt(step?.estimate?.toAmountMin ?? 0n) < bridge.minOut) throw new Error('Rejected: the updated route minimum is below the confirmed minimum. Request a new quote.');
+          const updatedTo = typeof step?.transactionRequest?.to === 'string' ? step.transactionRequest.to : '';
+          if (!updatedTo || updatedTo.toLowerCase() !== String(bridge.quote.estimate.approvalAddress ?? '').toLowerCase()) throw new Error('Rejected: the updated route changes the bridge contract. Request a new quote.');
           const txHash = updated.steps?.[0]?.execution?.actions?.find((action: any) => action.type === 'CROSS_CHAIN' && action.txHash)?.txHash;
           if (txHash && !sourceHash) { sourceHash = txHash; hashWrite = saveHash(txHash).catch(() => {}); }
         } });
@@ -480,24 +536,22 @@ export const api = {
     const cachedOverview = savedOverview ?? (oldOverview?.address?.toLowerCase() === activeAddress?.toLowerCase() ? oldOverview : null);
     const cachedTron = activeAddress ? await app.store.get(tronOverviewName(activeAddress)) : null;
     let flags = await readKeyFlags(app);
-    if (!flags.seeded) {
-      // One-time probe so an existing install keeps showing its key state.
-      // After this the startup path reads only the plain store.
-      const vaults = flags.vaults;
-      let keychainAvailable = true;
-      if (activeAddress) {
-        try { vaults[activeAddress.toLowerCase()] = !!(await app.secrets.get(vaultName(activeAddress))); }
-        catch { keychainAvailable = false; }
-      }
-      let legacyAddress: string | null = flags.legacyAddress;
-      try { const oldKey = await app.secrets.get(KEY); legacyAddress = oldKey ? privateKeyToAccount(oldKey).address : null; }
+    let keychainAvailable = true;
+    // Vault presence is probed once per address (reading an absent item does
+    // not prompt), so every wallet with a stored key stays usable after the
+    // update. The legacy key and the optional Infura key are probed once ever.
+    if (activeAddress && !(activeAddress.toLowerCase() in flags.vaults)) {
+      try { flags.vaults[activeAddress.toLowerCase()] = !!(await app.secrets.get(vaultName(activeAddress))); }
       catch { keychainAvailable = false; }
-      let infuraPresent = flags.infuraPresent;
-      try { infuraPresent = !!(await app.secrets.get(INFURA)); } catch { /* Optional; public RPC is the default. */ }
-      if (!keychainAvailable) return { wallets, activeAddress, cachedOverview, cachedTron, tronAddress: activeAddress ? tronAddress(activeAddress) : null, signerAddress: null, hasInfuraKey: false, hasPaymentPassword: false, needsPasswordSetup: false, keychainAvailable: false };
-      flags = { seeded: true, vaults, legacyAddress, infuraPresent };
-      try { await writeKeyFlags(app, flags); } catch { /* Retry on the next launch. */ }
     }
+    if (!flags.seeded) {
+      try { const oldKey = await app.secrets.get(KEY); flags.legacyAddress = oldKey ? privateKeyToAccount(oldKey).address : null; }
+      catch { keychainAvailable = false; }
+      try { flags.infuraPresent = !!(await app.secrets.get(INFURA)); } catch { /* Optional; public RPC is the default. */ }
+      flags.seeded = true;
+    }
+    if (!keychainAvailable) return { wallets, activeAddress, cachedOverview, cachedTron, tronAddress: activeAddress ? tronAddress(activeAddress) : null, signerAddress: null, hasInfuraKey: false, hasPaymentPassword: false, needsPasswordSetup: false, keychainAvailable: false };
+    try { await writeKeyFlags(app, flags); } catch { /* Retry on the next launch. */ }
     const hasVault = !!(activeAddress && flags.vaults[activeAddress.toLowerCase()]);
     const needsPasswordSetup = !!(activeAddress && flags.legacyAddress && flags.legacyAddress.toLowerCase() === activeAddress.toLowerCase());
     return { wallets, activeAddress, cachedOverview, cachedTron, tronAddress: activeAddress ? tronAddress(activeAddress) : null, signerAddress: hasVault ? activeAddress : needsPasswordSetup ? flags.legacyAddress : null, hasInfuraKey: flags.infuraPresent, hasPaymentPassword: hasVault, needsPasswordSetup, keychainAvailable: true };
@@ -750,7 +804,12 @@ export const api = {
       await publicClient.simulateContract({ address: ROUTER, abi: ROUTER_ABI, functionName: 'exactInputSingle', args: [params], account });
       const gas = await publicClient.estimateContractGas({ address: ROUTER, abi: ROUTER_ABI, functionName: 'exactInputSingle', args: [params], account });
       if (await publicClient.getBalance({ address: account.address }) < gas * fees.maxFeePerGas) throw new Error('Not enough ETH for the swap network fee.');
-      const transactionHash = await walletClient.writeContract({ address: ROUTER, abi: ROUTER_ABI, functionName: 'exactInputSingle', args: [params], gas: gas * 12n / 10n, maxFeePerGas: fees.maxFeePerGas, maxPriorityFeePerGas: fees.maxPriorityFeePerGas });
+      const nonce = await publicClient.getTransactionCount({ address: account.address });
+      const serialized = await walletClient.signTransaction({ account, chain: mainnet, to: ROUTER, data: encodeFunctionData({ abi: ROUTER_ABI, functionName: 'exactInputSingle', args: [params] }), nonce, gas: gas * 12n / 10n, maxFeePerGas: fees.maxFeePerGas, maxPriorityFeePerGas: fees.maxPriorityFeePerGas });
+      const transactionHash = keccak256(serialized);
+      let submitted = true;
+      try { await publicClient.sendRawTransaction({ serializedTransaction: serialized }); }
+      catch { submitted = false; }
       let metadataSaved = false;
       try {
         const submittedAt = new Date().toISOString();
@@ -758,6 +817,7 @@ export const api = {
         const payments = [{ kind: 'swap', hash: transactionHash, sender: account.address, recipient: account.address, token: quote.tokenIn, tokenOut: tokenOutSymbol, amount: formatUnits(quote.amountIn, 6), expectedOut: formatUnits(quote.quotedOut, 6), minOut: formatUnits(minOut, 6), description: '', counterparty: '', submittedAt, date: null, status: 'pending' }, ...previous].slice(0, 100);
         metadataSaved = await app.store.set(PAYMENTS, payments);
       } catch { /* The transaction was already sent. */ }
+      if (!submitted) throw new Error(locale === 'en' ? `The swap transaction may already be sent: ${transactionHash}. Check its status in History before retrying.` : `Транзакция обмена могла быть отправлена: ${transactionHash}. Проверьте её статус в истории, прежде чем повторять.`);
       return { hash: transactionHash, approvalHashes: approvals, metadataSaved };
     } catch (error: any) {
       if (approvals.length) throw new Error(`${locale === 'en' ? 'Swap was not sent. Approval transaction(s)' : 'Обмен не отправлен. Транзакции разрешения'}: ${approvals.join(', ')}. ${error?.message ?? ''}`);
@@ -799,7 +859,15 @@ export const api = {
       if (!approved) return { cancelled: true };
       if ((await activeWallet(app))?.address.toLowerCase() !== from.toLowerCase()) throw new Error('Selected wallet changed. Review the payment again.');
       const walletClient = createWalletClient({ account, chain: mainnet, transport: http(url) });
-      const transactionHash = await network(() => walletClient.writeContract({ address: contract, abi: ABI, functionName: 'transfer', args: [to, rawAmount], gas, maxFeePerGas: fees.maxFeePerGas, maxPriorityFeePerGas: fees.maxPriorityFeePerGas }));
+      // Sign before broadcasting so the hash is known even if the RPC answer
+      // is lost: an accepted-but-unconfirmed transaction must never look like
+      // "nothing was sent" and invite a duplicate payment.
+      const nonce = await network(() => publicClient.getTransactionCount({ address: account.address }));
+      const serialized = await walletClient.signTransaction({ account, chain: mainnet, to: contract, data: encodeFunctionData({ abi: ABI, functionName: 'transfer', args: [to, rawAmount] }), nonce, gas, maxFeePerGas: fees.maxFeePerGas, maxPriorityFeePerGas: fees.maxPriorityFeePerGas });
+      const transactionHash = keccak256(serialized);
+      let submitted = true;
+      try { await network(() => publicClient.sendRawTransaction({ serializedTransaction: serialized })); }
+      catch { submitted = false; }
       const submittedAt = new Date().toISOString();
       let metadataSaved = false;
       try {
@@ -807,6 +875,7 @@ export const api = {
         const payments = [{ hash: transactionHash, sender: from, recipient: to, token: symbol, amount: humanAmount, description: note, counterparty: contact?.name ?? '', submittedAt, date: null, status: 'pending' }, ...previous].slice(0, 100);
         metadataSaved = await app.store.set(PAYMENTS, payments);
       } catch { /* The transaction was already sent. */ }
+      if (!submitted) throw new Error(english ? `The transaction may already be sent: ${transactionHash}. Check its status in History before retrying.` : `Транзакция могла быть отправлена: ${transactionHash}. Проверьте её статус в истории, прежде чем повторять.`);
       return { hash: transactionHash, submittedAt, metadataSaved };
     } finally { sending = false; }
   },
