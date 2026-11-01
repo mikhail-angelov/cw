@@ -135,7 +135,7 @@ footer{color:var(--muted);font-size:10px;text-align:center;margin-top:16px}
 .swap-btn{width:100%;margin-top:16px}
 .swap-preview-output{font-size:24px;font-weight:700;font-variant-numeric:tabular-nums;overflow-wrap:anywhere;display:block}
 .swap-preview p{margin:6px 0 0;color:var(--muted);font-size:12px}
-#swap-preview button,#bridge-preview button{margin-top:12px}
+#swap-preview button{margin-top:12px}
 
 /* Forms and shared sections */
 .form-grid{display:grid;grid-template-columns:1fr;gap:4px 0;margin-top:12px;max-width:560px}

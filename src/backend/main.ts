@@ -3,9 +3,6 @@ import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { mainnet } from 'viem/chains';
 import { scryptAsync } from '@noble/hashes/scrypt.js';
 import { TronWeb } from 'tronweb';
-import { createClient as createLiFiClient, convertQuoteToRoute, executeRoute, getQuote, getStatus } from '@lifi/sdk';
-import { TronProvider } from '@lifi/sdk-provider-tron';
-import { EthereumProvider } from '@lifi/sdk-provider-ethereum';
 
 const USDT = '0xdAC17F958D2ee523a2206206994597C13D831ec7';
 const USDC = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
@@ -27,15 +24,10 @@ const WALLETS = 'wallets-v2';
 const ACTIVE = 'active-wallet-v2';
 const CONTACTS = 'counterparties';
 const PAYMENTS = 'payments';
-const BRIDGES = 'bridge-transfers-v1';
 const TRON_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t';
-const TRON_ID = 728126428;
 const tronOverviewName = (who: string) => `tron-overview-v1:${who.toLowerCase()}`;
 let sending = false;
 let pendingSwap: { id: string; sender: Hex; tokenIn: TokenSymbol; amountIn: bigint; quotedOut: bigint; fee: number; createdAt: number } | null = null;
-type BridgeDirection = 'TRON_TO_ETH' | 'ETH_TO_TRON';
-type PendingBridge = { id: string; sender: Hex; source: string; destination: string; direction: BridgeDirection; amountIn: bigint; minOut: bigint; quote: any; createdAt: number };
-let pendingBridge: PendingBridge | null = null;
 
 type Vault = { version: 1; address: Hex; salt: Hex; iv: Hex; ciphertext: Hex };
 type WalletEntry = { address: Hex; label: string };
@@ -72,7 +64,7 @@ async function saveSigningKey(app: any, who: Hex, vault: string) {
 
 // Key presence is mirrored in the plain store so app startup never touches
 // Keychain and never triggers its access prompts. The secret itself is read
-// only when signing: payments, swaps, bridges and key export.
+// only when signing: payments, swaps and key export.
 const KEY_FLAGS = 'key-flags-v1';
 type KeyFlags = { vaults: Record<string, boolean>; infuraPresent: boolean };
 async function readKeyFlags(app: any): Promise<KeyFlags> {
@@ -226,66 +218,6 @@ async function tronBalances(who: Hex) {
   const tokenEntry = account?.trc20?.flatMap((entry: Record<string, string>) => Object.entries(entry)).find(([contract]: [string, string]) => contract === TRON_USDT);
   return { address: tron, activated: !!account, trx: BigInt(account?.balance ?? 0), usdt: BigInt(tokenEntry?.[1] ?? 0) };
 }
-// Security guards: nothing is signed until the actual transaction matches the
-// route the user confirmed. The called contract must be the approval address
-// shown in the confirmation dialog, token approvals are exact-amount to that
-// contract only, and no native currency may ever move (USDT-only bridging).
-// Tool-specific router calldata cannot be decoded generically, so it is
-// pinned to the confirmed contract instead.
-const APPROVE_SELECTOR = '095ea7b3';
-function bridgeUnavailable(): void { throw new Error('Bridge temporarily unavailable: route verification is not supported.'); }
-function checkEthBridgeTransaction(bridge: PendingBridge, tx: { to?: unknown; data?: unknown; value?: unknown }) {
-  const to = typeof tx.to === 'string' ? tx.to.toLowerCase() : '';
-  const data = typeof tx.data === 'string' ? tx.data.replace(/^0x/, '').toLowerCase() : '';
-  const router = String(bridge.quote.estimate.approvalAddress ?? '').toLowerCase();
-  const value = BigInt((tx.value as bigint | undefined) ?? 0n);
-  if (!to || !router || !data) throw new Error('Rejected: the bridge transaction is incomplete.');
-  if (value !== 0n) throw new Error('Rejected: the route tries to transfer native currency.');
-  if (to === USDT.toLowerCase()) {
-    if (data.slice(0, 8) !== APPROVE_SELECTOR) throw new Error('Rejected: unexpected token contract call.');
-    const spender = `0x${data.slice(32, 72)}`;
-    const approved = BigInt(`0x${data.slice(72, 136)}`);
-    if (spender !== router || (approved !== 0n && approved !== bridge.amountIn)) throw new Error('Rejected: token approval does not match the confirmed route.');
-  } else if (to !== router) throw new Error('Rejected: unknown bridge contract.');
-}
-function checkTronBridgeTransaction(bridge: PendingBridge, transaction: any) {
-  const contracts = transaction?.raw_data?.contract;
-  if (!Array.isArray(contracts) || contracts.length !== 1) throw new Error('Rejected: unexpected TRON transaction shape.');
-  const entry = contracts[0];
-  if (entry?.type !== 'TriggerSmartContract') throw new Error('Rejected: unexpected TRON transaction type.');
-  const body = entry.parameter?.value ?? {};
-  const owner = TronWeb.address.fromHex(String(body.owner_address ?? ''));
-  const contract = TronWeb.address.fromHex(String(body.contract_address ?? ''));
-  const data = String(body.data ?? '').replace(/^0x/, '').toLowerCase();
-  const router = String(bridge.quote.estimate.approvalAddress ?? '');
-  if (owner !== bridge.source) throw new Error('Rejected: transaction owner does not match the source wallet.');
-  if (BigInt(body.call_value ?? 0) !== 0n) throw new Error('Rejected: the route tries to transfer native TRX.');
-  if (!contract || !router || !data) throw new Error('Rejected: the bridge transaction is incomplete.');
-  if (contract === TRON_USDT) {
-    if (data.slice(0, 8) !== APPROVE_SELECTOR) throw new Error('Rejected: unexpected TRC-20 contract call.');
-    const spender = `0x${data.slice(32, 72)}`;
-    const approved = BigInt(`0x${data.slice(72, 136)}`);
-    if (spender !== TronWeb.address.toHex(router).toLowerCase().replace(/^41/, '0x') || (approved !== 0n && approved !== bridge.amountIn)) throw new Error('Rejected: TRC-20 approval does not match the confirmed route.');
-  } else if (contract !== router) throw new Error('Rejected: unknown TRON bridge contract.');
-}
-function guardedWalletClient(bridge: PendingBridge, client: any) {
-  const guarded = Object.create(client);
-  guarded.sendTransaction = async (args: any) => { checkEthBridgeTransaction(bridge, args); return client.sendTransaction(args); };
-  return guarded;
-}
-
-async function bridgeClient(wallet?: any) {
-  const client = createLiFiClient({ integrator: 'cw-wallet', providers: [TronProvider(wallet?.address?.startsWith('T') ? { getWallet: async () => wallet } : {}), EthereumProvider(wallet?.account ? { getWalletClient: async () => wallet, disableMessageSigning: true } : {})], rpcUrls: { [TRON_ID]: ['https://api.trongrid.io'], 1: ['https://ethereum-rpc.publicnode.com'] }, preloadChains: false, disableVersionCheck: true });
-  if (wallet) {
-    const response = await fetch('https://li.quest/v1/chains?chainTypes=TVM,EVM');
-    if (!response.ok) throw new Error('Bridge network list is unavailable.');
-    const result = await response.json();
-    if (!Array.isArray(result.chains) || !result.chains.some((chain: any) => chain.id === TRON_ID)) throw new Error('TRON bridge support is unavailable.');
-    client.setChains(result.chains);
-  }
-  return client;
-}
-
 export function onNavigate(info: { kind: string }) {
   if (info.kind === 'policy') return 'deny';
 }
@@ -297,136 +229,6 @@ export const api = {
     const overview = { address: balances.address, activated: balances.activated, trx: formatUnits(balances.trx, 6), usdt: formatUnits(balances.usdt, 6), fetchedAt: new Date().toISOString() };
     await app.store.set(tronOverviewName(who), overview);
     return overview;
-  },
-  async quoteBridge({ walletAddress, value, direction }: { walletAddress: unknown; value: unknown; direction: unknown }, app: any) {
-    bridgeUnavailable();
-    if (sending) throw new Error('Another transaction is already being sent.');
-    const who = address(walletAddress);
-    if ((await activeWallet(app))?.address.toLowerCase() !== who.toLowerCase()) throw new Error('Selected wallet changed.');
-    if (direction !== 'TRON_TO_ETH' && direction !== 'ETH_TO_TRON') throw new Error('Unsupported bridge direction.');
-    const humanAmount = amount(value);
-    const amountIn = parseUnits(humanAmount, 6);
-    const source = direction === 'TRON_TO_ETH' ? tronAddress(who) : who;
-    const destination = direction === 'TRON_TO_ETH' ? who : tronAddress(who);
-    const fromChain = direction === 'TRON_TO_ETH' ? TRON_ID : 1;
-    const toChain = direction === 'TRON_TO_ETH' ? 1 : TRON_ID;
-    const fromToken = direction === 'TRON_TO_ETH' ? TRON_USDT : USDT;
-    const toToken = direction === 'TRON_TO_ETH' ? USDT : TRON_USDT;
-    const client = await bridgeClient();
-    const quote = await getQuote(client, { fromChain, toChain, fromToken, toToken, fromAmount: amountIn.toString(), fromAddress: source, toAddress: destination });
-    const same = (actual: string, expected: string, chain: number) => chain === TRON_ID ? actual === expected : actual.toLowerCase() === expected.toLowerCase();
-    if (quote.action.fromChainId !== fromChain || quote.action.toChainId !== toChain || !same(quote.action.fromToken.address, fromToken, fromChain) || !same(quote.action.toToken.address, toToken, toChain) || !quote.action.fromAddress || !same(quote.action.fromAddress, source, fromChain) || !quote.action.toAddress || !same(quote.action.toAddress, destination, toChain) || BigInt(quote.action.fromAmount) !== amountIn) throw new Error('Bridge quote does not match the selected networks or addresses.');
-    const route = convertQuoteToRoute(quote);
-    if (route.steps.length !== 1 || route.steps[0].action.fromChainId !== fromChain || !quote.transactionRequest?.data) throw new Error('This bridge route is not supported by CW Wallet.');
-    if (!quote.estimate.approvalAddress || !quote.transactionRequest?.to || String(quote.transactionRequest.to).toLowerCase() !== String(quote.estimate.approvalAddress).toLowerCase()) throw new Error('This bridge route is not supported by CW Wallet.');
-    const minOut = BigInt(quote.estimate.toAmountMin);
-    if (minOut < amountIn * 95n / 100n) throw new Error('Bridge fees exceed 5% of the amount; transfer blocked.');
-    const id = toHex(crypto.getRandomValues(new Uint8Array(16)));
-    pendingBridge = { id, sender: who, source, destination, direction, amountIn, minOut, quote, createdAt: Date.now() };
-    const gasToken = direction === 'TRON_TO_ETH' ? 'TRX' : 'ETH';
-    const gasUnits = direction === 'TRON_TO_ETH' ? 6 : 18;
-    const gasAmount = (quote.estimate.gasCosts ?? []).filter((cost: any) => cost.token?.symbol === gasToken).reduce((total: bigint, cost: any) => total + BigInt(cost.amount), 0n);
-    const routeFee = (quote.estimate.feeCosts ?? []).filter((cost: any) => cost.token?.symbol === 'USDT').reduce((total: bigint, cost: any) => total + BigInt(cost.amount), 0n);
-    const destinationReady = direction === 'TRON_TO_ETH' ? true : (await tronBalances(who)).activated;
-    return { id, source, destination, direction, amountIn: humanAmount, estimatedOut: formatUnits(BigInt(quote.estimate.toAmount), 6), minOut: formatUnits(minOut, 6), route: quote.toolDetails?.name ?? quote.tool, routeFee: formatUnits(routeFee, 6), estimatedGas: formatUnits(gasAmount, gasUnits), gasToken, destinationReady, expiresAt: new Date(Date.now() + 180_000).toISOString() };
-  },
-  async executeBridge({ quoteId, password, locale }: { quoteId: unknown; password: unknown; locale?: unknown }, app: any) {
-    bridgeUnavailable();
-    if (sending) throw new Error('Another transaction is already being sent.');
-    sending = true;
-    let sourceHash = '';
-    try {
-      const bridge = pendingBridge;
-      if (typeof quoteId !== 'string' || !bridge || bridge.id !== quoteId || Date.now() - bridge.createdAt > 180_000) throw new Error('Bridge quote expired. Request a new quote.');
-      if ((await activeWallet(app))?.address.toLowerCase() !== bridge.sender.toLowerCase()) throw new Error('Selected wallet changed.');
-      const existing = await app.store.get(BRIDGES);
-      if (Array.isArray(existing) && existing.some((item) => item.sender?.toLowerCase() === bridge.sender.toLowerCase() && item.status === 'pending')) throw new Error('A bridge transfer is still pending. Load history before trying again.');
-      const key = await decryptKey(await savedVault(app, bridge.sender), paymentPassword(password));
-      const account = privateKeyToAccount(key);
-      if (account.address.toLowerCase() !== bridge.sender.toLowerCase()) throw new Error('Signing key does not match the selected wallet.');
-      let gasText: string;
-      let rpcUrl = '';
-      if (bridge.direction === 'TRON_TO_ETH') {
-        const balances = await tronBalances(bridge.sender);
-        if (balances.usdt < bridge.amountIn) throw new Error('Not enough TRC-20 USDT in this TRON wallet.');
-        const gasSun = (bridge.quote.estimate.gasCosts ?? []).filter((cost: any) => cost.token?.symbol === 'TRX').reduce((total: bigint, cost: any) => total + BigInt(cost.amount), 0n);
-        if (balances.trx < gasSun) throw new Error('Not enough TRX for the estimated network fees.');
-        gasText = `${formatUnits(gasSun, 6)} TRX`;
-      } else {
-        if (!(await tronBalances(bridge.sender)).activated) throw new Error('Activate your TRON address with a small TRX transfer before bridging USDT to it.');
-        const { publicClient, url } = await clients(app);
-        rpcUrl = url;
-        const balance = await publicClient.readContract({ address: USDT, abi: ABI, functionName: 'balanceOf', args: [bridge.sender] });
-        if (balance < bridge.amountIn) throw new Error('Not enough Ethereum USDT.');
-        const approvalAddress = address(bridge.quote.estimate.approvalAddress);
-        const allowance = await publicClient.readContract({ address: USDT, abi: ABI, functionName: 'allowance', args: [bridge.sender, approvalAddress] });
-        const gasWei = (bridge.quote.estimate.gasCosts ?? []).filter((cost: any) => cost.token?.symbol === 'ETH').reduce((total: bigint, cost: any) => total + BigInt(cost.amount), 0n);
-        const fees = await publicClient.estimateFeesPerGas();
-        const maxWei = gasWei * 12n / 10n + (allowance < bridge.amountIn ? (allowance > 0n ? 2n : 1n) * 100_000n * fees.maxFeePerGas : 0n);
-        if (await publicClient.getBalance({ address: bridge.sender }) < maxWei) throw new Error('Not enough ETH for the estimated network fees and token approval.');
-        gasText = `${formatEther(maxWei)} ETH`;
-      }
-      const english = locale === 'en';
-      const target = bridge.direction === 'TRON_TO_ETH' ? 'Ethereum' : 'TRON';
-      const routeFee = (bridge.quote.estimate.feeCosts ?? []).filter((cost: any) => cost.token?.symbol === 'USDT').reduce((total: bigint, cost: any) => total + BigInt(cost.amount), 0n);
-      const confirmed = await app.dialog.confirm(english ? `Bridge ${formatUnits(bridge.amountIn, 6)} USDT to ${target}?` : `Перенести ${formatUnits(bridge.amountIn, 6)} USDT в ${target}?`, {
-        detail: english ? `From: ${bridge.source}\nTo: ${bridge.destination}\nMinimum received: ${formatUnits(bridge.minOut, 6)} USDT\nRoute: ${bridge.quote.toolDetails?.name ?? bridge.quote.tool}\nListed route fees: ${formatUnits(routeFee, 6)} USDT\nApproval address: ${bridge.quote.estimate.approvalAddress ?? '—'}\nEstimated source network fees: ${gasText}\nA token approval transaction may be required. Cross-chain delivery can take several minutes.` : `От: ${bridge.source}\nКому: ${bridge.destination}\nМинимум к получению: ${formatUnits(bridge.minOut, 6)} USDT\nМаршрут: ${bridge.quote.toolDetails?.name ?? bridge.quote.tool}\nКомиссии маршрута по котировке: ${formatUnits(routeFee, 6)} USDT\nАдрес разрешения: ${bridge.quote.estimate.approvalAddress ?? '—'}\nОценка комиссии исходной сети: ${gasText}\nМожет потребоваться отдельное разрешение токена. Межсетевой перевод занимает несколько минут.`,
-        ok: english ? 'Bridge now' : 'Перенести сейчас', cancel: english ? 'Cancel' : 'Отмена',
-      });
-      if (!confirmed) { pendingBridge = null; return { cancelled: true }; }
-      if ((await activeWallet(app))?.address.toLowerCase() !== bridge.sender.toLowerCase() || Date.now() - bridge.createdAt > 180_000) throw new Error('Wallet or quote changed. Request a new quote.');
-      pendingBridge = null;
-      const tronSigner = bridge.direction === 'TRON_TO_ETH' ? new TronWeb({ fullHost: 'https://api.trongrid.io' }) : null;
-      const wallet = tronSigner ? { address: bridge.source, signTransaction: (transaction: any) => { checkTronBridgeTransaction(bridge, transaction); return tronSigner.trx.sign(transaction, key.slice(2)); } } : guardedWalletClient(bridge, createWalletClient({ account, chain: mainnet, transport: http(rpcUrl) }));
-      const client = await bridgeClient(wallet);
-      const route = convertQuoteToRoute(bridge.quote);
-      let hashWrite: Promise<void> = Promise.resolve();
-      const saveHash = async (txHash: string, status = 'pending') => {
-        const previous = await app.store.get(BRIDGES);
-        const records = Array.isArray(previous) ? previous : [];
-        const record = { hash: txHash, sender: bridge.sender, source: bridge.source, destination: bridge.destination, direction: bridge.direction, fromChain: bridge.quote.action.fromChainId, toChain: bridge.quote.action.toChainId, amount: formatUnits(bridge.amountIn, 6), minOut: formatUnits(bridge.minOut, 6), route: bridge.quote.tool, submittedAt: new Date().toISOString(), status };
-        await app.store.set(BRIDGES, [record, ...records.filter((item) => item.hash !== txHash)].slice(0, 100));
-      };
-      try {
-        const finished = await executeRoute(client, route, { acceptExchangeRateUpdateHook: async ({ newToAmount }) => BigInt(newToAmount) >= bridge.minOut, updateRouteHook: (updated: any) => {
-          // The SDK can accept route updates silently within its slippage
-          // tolerance, so the confirmed minimum and the confirmed bridge
-          // contract are enforced here, before anything is signed.
-          const step = updated?.steps?.[0];
-          if (BigInt(step?.estimate?.toAmountMin ?? 0n) < bridge.minOut) throw new Error('Rejected: the updated route minimum is below the confirmed minimum. Request a new quote.');
-          const updatedTo = typeof step?.transactionRequest?.to === 'string' ? step.transactionRequest.to : '';
-          if (!updatedTo || updatedTo.toLowerCase() !== String(bridge.quote.estimate.approvalAddress ?? '').toLowerCase()) throw new Error('Rejected: the updated route changes the bridge contract. Request a new quote.');
-          const txHash = updated.steps?.[0]?.execution?.actions?.find((action: any) => action.type === 'CROSS_CHAIN' && action.txHash)?.txHash;
-          if (txHash && !sourceHash) { sourceHash = txHash; hashWrite = saveHash(txHash).catch(() => {}); }
-        } });
-        const txHash = finished.steps?.[0]?.execution?.actions?.find((action: any) => action.type === 'CROSS_CHAIN' && action.txHash)?.txHash ?? sourceHash;
-        if (!txHash) throw new Error('Bridge did not return a source transaction hash.');
-        sourceHash = txHash;
-        const partial = finished.steps?.[0]?.execution?.actions?.some((action: any) => action.substatus === 'PARTIAL');
-        const status = finished.steps?.[0]?.execution?.status === 'DONE' ? partial ? 'partial' : 'confirmed' : 'pending';
-        await hashWrite;
-        await saveHash(txHash, status);
-        return { hash: txHash, status };
-      } catch (error: any) {
-        if (sourceHash) { try { await hashWrite; await saveHash(sourceHash); } catch {} throw new Error(`${english ? 'Source transaction may have been sent' : 'Транзакция в исходной сети могла быть отправлена'}: ${sourceHash}. ${error?.message ?? ''}`); }
-        throw error;
-      }
-    } finally { sending = false; }
-  },
-  async listBridges({ walletAddress }: { walletAddress: unknown }, app: any) {
-    const who = address(walletAddress);
-    const saved = await app.store.get(BRIDGES);
-    const records = Array.isArray(saved) ? saved : [];
-    const client = await bridgeClient();
-    for (const record of records.filter((item) => item.sender?.toLowerCase() === who.toLowerCase() && item.status === 'pending').slice(0, 10)) {
-      try {
-        const result = await getStatus(client, { txHash: record.hash, fromChain: record.fromChain ?? TRON_ID, toChain: record.toChain ?? 1, bridge: record.route });
-        if (result.status === 'DONE') record.status = result.substatus === 'PARTIAL' ? 'partial' : 'confirmed';
-        else if (result.status === 'FAILED') record.status = 'failed';
-      } catch { /* Leave the status pending until it can be checked. */ }
-    }
-    await app.store.set(BRIDGES, records);
-    return records.filter((item) => item.sender?.toLowerCase() === who.toLowerCase());
   },
   async saveWatchAddress({ walletAddress, label }: { walletAddress: unknown; label?: unknown }, app: any) {
     const who = address(walletAddress);

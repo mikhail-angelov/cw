@@ -145,7 +145,6 @@
           </div>
         </div>
       </form>
-      <details class="subsection" open><summary data-i18n="bridgeTitle">USDT между Ethereum и TRON</summary><p id="bridge-state" class="muted"></p><p class="muted" data-i18n="bridgeExplainer">Котировка показывает сумму после комиссий маршрута. ETH или TRX для сети и возможного разрешения списания оплачиваются отдельно.</p><form id="bridge-form" class="form-grid" hidden><label for="bridge-direction" data-i18n="bridgeDirection">Направление</label><select id="bridge-direction"><option value="ETH_TO_TRON">Ethereum → TRON</option><option value="TRON_TO_ETH">TRON → Ethereum</option></select><label for="bridge-amount" data-i18n="bridgeAmount">Сумма USDT</label><input id="bridge-amount" inputmode="decimal" placeholder="0.00" required><button type="submit" data-i18n="getBridgeQuote">Получить маршрут</button></form><div id="bridge-preview" class="swap-box" hidden><strong id="bridge-preview-output" class="swap-preview-output"></strong><p id="bridge-preview-details" class="muted"></p><button id="bridge-continue" type="button" data-i18n="continueToPassword">Продолжить к паролю</button></div></details>
     </section>
 
     <!-- Screen: history -->
@@ -156,7 +155,6 @@
         <h3 class="history-subhead" data-i18n="tokenTransfers">Переводы USDT и USDC</h3><div id="inspect-transfers" class="history-list"></div>
         <p class="safety-note" data-i18n="historyWarning">Перед платежом сверяйте адрес получателя целиком: мелкие входящие переводы могут подменять адреса в истории.</p>
         <h3 class="history-subhead" data-i18n="myPayments">Мои операции</h3><div id="payment-history" class="history-list"></div>
-        <h3 class="history-subhead" data-i18n="bridgeHistory">Межсетевые переводы</h3><div id="bridge-history" class="history-list"></div>
       </div>
       <details class="subsection"><summary data-i18n="checkTransaction">Проверить транзакцию по хешу</summary><form id="status-form" class="inline-form"><input id="tx-hash" autocomplete="off" spellcheck="false" placeholder="0x…" required><button type="submit" class="secondary" data-i18n="checkStatus">Проверить статус</button></form><p id="tx-result" class="muted"></p></details>
     </section>

@@ -20,9 +20,6 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@lifi/sdk": "^4.12.1",
-    "@lifi/sdk-provider-ethereum": "^4.2.11",
-    "@lifi/sdk-provider-tron": "^4.1.9",
     "@noble/hashes": "^2.4.0",
     "commander": "^14.0.0",
     "dotenv": "^17.2.1",
