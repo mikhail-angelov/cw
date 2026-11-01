@@ -31,16 +31,12 @@ npm run build -- --universal
 npm run package:mac
 ```
 
-## Releases and Homebrew
-
-GitHub Actions checks TypeScript and JavaScript and builds a universal macOS app. The `vX.Y.Z` tag must match the `version` in `tinyjs.json`; CI publishes a GitHub Release with a ZIP and SHA-256 checksum when the tag is pushed. If the `cw` repository has a `HOMEBREW_TAP_TOKEN` secret with `contents: write` permission for `mikhail-angelov/homebrew-tap`, a stable release automatically updates the `cw-wallet` Cask.
-
-After the first release and tap update:
+## Install with Homebrew
 
 ```sh
 brew install --cask mikhail-angelov/tap/cw-wallet
 ```
 
-The build is currently signed ad hoc and is not notarized by Apple. Homebrew preserves macOS quarantine; on first launch, macOS may ask you to manually allow the app in System Settings → Privacy & Security. CI does not disable Gatekeeper. A Developer ID and notarization are required for automatic trusted launch.
+The app is not notarized by Apple. On first launch, macOS may ask you to allow it in System Settings → Privacy & Security.
 
 The original CLI remains in `cli.js`.
