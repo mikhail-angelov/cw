@@ -2,6 +2,8 @@
 
 A compact macOS app for viewing Ethereum and TRON balances, sending USDT/USDC, and swapping USDT ↔ USDC on Ethereum. The interface is available in Russian and English. Built with [tinyjs](https://tinyjs.app/).
 
+<img height="480" alt="image" src="https://github.com/user-attachments/assets/23cb8c16-9711-4ef6-9e13-fd73b7e6d8cc" />
+
 ## Wallets and security
 
 - Add multiple public addresses and switch between them at the top of the window. Private keys are not required to view balances.
