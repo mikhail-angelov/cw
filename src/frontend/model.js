@@ -51,7 +51,13 @@ const walletModel = (() => {
 
   return Object.freeze({
     get data() { return data; },
+    get activeAddress() { return data.state?.activeAddress || null; },
     get busy() { return !!(data.ui.pending.action || data.ui.pending.payment || data.ui.pending.secret); },
+
+    findContact(address) {
+      const value = (address || '').trim().toLowerCase();
+      return value ? data.contacts.find((item) => item.address.toLowerCase() === value) : undefined;
+    },
 
     setUi,
 
