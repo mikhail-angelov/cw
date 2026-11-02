@@ -23,9 +23,11 @@ Object.assign(ru, { totalBalance:'Общий баланс', stableNote:'Сумм
 Object.assign(en, { totalBalance:'Total balance', stableNote:'Sum of USDT and USDC across both networks, excluding ETH and TRX', assets:'Assets', actionSend:'Send', receive:'Receive', receiveTitle:'Receive to address', close:'Close', getApprox:'You receive (estimated)', hideBalance:'Hide amounts', showBalance:'Show amounts', tronAddressLabel:'TRON address' });
 Object.assign(ru, { back:'Назад', recipientName:'Имя (необязательно)', recipientNameHint:'Например, Иван — добавится в контрагенты при отправке', amountGeneric:'Сумма', actionPay:'Оплатить', refreshStatus:'Обновить статус' });
 Object.assign(en, { back:'Back', recipientName:'Name (optional)', recipientNameHint:'For example, Ivan — saved as a contact when sent', amountGeneric:'Amount', actionPay:'Pay', refreshStatus:'Refresh status' });
-let lang = 'ru';
-try { lang = localStorage.getItem('cw-language') || (navigator.language.startsWith('ru') ? 'ru' : 'en'); } catch { lang = navigator.language.startsWith('ru') ? 'ru' : 'en'; }
-const t = (key) => (lang === 'en' ? en : ru)[key] || key;
+Object.assign(ru, { working:'Выполняю…', loadingContacts:'Загружаю контакты…', checkingStatus:'Проверяю транзакцию…', loadingQuote:'Получаю котировку…', copyingSecret:'Копирую приватный ключ…' });
+Object.assign(en, { working:'Working…', loadingContacts:'Loading contacts…', checkingStatus:'Checking transaction…', loadingQuote:'Getting quote…', copyingSecret:'Copying private key…' });
+try { walletModel.setUi({ language: localStorage.getItem('cw-language') || (navigator.language.startsWith('ru') ? 'ru' : 'en') }); }
+catch { walletModel.setUi({ language: navigator.language.startsWith('ru') ? 'ru' : 'en' }); }
+const t = (key) => (walletModel.data.ui.language === 'en' ? en : ru)[key] || key;
 const ICONS = {
   copy: ['M8 8h11a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V8Z', 'M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3'],
   refresh: ['M20 7v5h-5', 'M4 17v-5h5', 'M5.5 9a7 7 0 0 1 12-2L20 12', 'M18.5 15a7 7 0 0 1-12 2L4 12'],
@@ -60,117 +62,166 @@ function makeIcon(name) {
 function injectIcons() { document.querySelectorAll('[data-icon]').forEach((node) => { node.querySelector('svg')?.remove(); node.prepend(makeIcon(node.dataset.icon)); }); }
 function setIcon(node, name) { node.dataset.icon = name; node.querySelector('svg')?.remove(); node.prepend(makeIcon(name)); }
 function translate() {
-  document.documentElement.lang = lang;
-  $('language').value = lang;
+  document.documentElement.lang = walletModel.data.ui.language;
+  $('language').value = walletModel.data.ui.language;
   document.querySelectorAll('[data-i18n]').forEach((node) => { (node.querySelector(':scope > .button-label') || node).textContent = t(node.dataset.i18n); });
   document.querySelectorAll('[data-i18n-placeholder]').forEach((node) => { node.placeholder = t(node.dataset.i18nPlaceholder); });
   document.querySelectorAll('[data-i18n-title]').forEach((node) => { node.title = t(node.dataset.i18nTitle); });
-  renderWallets(); renderContacts(); renderPayments(); renderTransfers(); renderState(); renderOverview(); renderTron();
+  renderWallets(); renderContacts(); renderPayments(); renderTransfers(); renderState(); renderOverview(); renderTron(); renderTotalBalance(); renderSwapQuote();
 }
-$('language').addEventListener('change', (event) => { lang = event.target.value; try { localStorage.setItem('cw-language', lang); } catch {} translate(); });
-const call = (name, args = {}) => tiny.api.call(name, args);
-const $message = $('message');
-function message(value, error = false, spinner = false) { $message.textContent = value; $message.className = error ? 'notice error' : 'notice'; $message.hidden = !value; if (spinner && value) { const spin = document.createElement('span'); spin.className = 'spinner'; $message.prepend(spin); } }
-function errorText(error) { const raw = typeof error === 'string' ? error : error?.message || ''; if (raw.startsWith('Balance is temporarily unavailable')) return t('balanceUnavailable'); if (raw.startsWith('Transaction history is temporarily unavailable')) return t('historyError'); if (lang === 'en' && /[А-Яа-яЁё]/.test(raw)) return t('genericError'); if (lang === 'ru' && /^[A-Za-z]/.test(raw) && !/swap|quote|USDT|USDC|ETH|Ethereum|wallet|network|allowance|approval|[0-9a-f]{64}/i.test(raw)) return t('genericError'); return raw || t('genericError'); }
-let busy = false;
-async function run(task, progress = '') { if (busy) return; busy = true; document.querySelectorAll('button').forEach((button) => { button.disabled = true; }); message(progress, false, true); try { await task(); } catch (error) { message(errorText(error), true); } finally { busy = false; document.querySelectorAll('button').forEach((button) => { button.disabled = false; }); $('refresh-balance').disabled = !activeAddress(); $('copy-address').disabled = !activeAddress(); } }
+$('language').addEventListener('change', (event) => { walletModel.setUi({ language: event.target.value }); try { localStorage.setItem('cw-language', event.target.value); } catch {} });
+const operationLabels = { inspectAddress:'checkingBalance', inspectTron:'checkingBalance', walletState:'loading', listCounterparties:'loadingContacts', listPayments:'checkingHistory', loadTransferHistory:'checkingHistory', transactionStatus:'checkingStatus', quoteSwap:'loadingQuote', sendToken:'checkingFee', executeSwap:'checkingFee', copyPrivateKey:'copyingSecret' };
+async function call(name, args = {}) {
+  walletModel.startOperation(name, operationLabels[name] || 'working');
+  try { return await tiny.api.call(name, args); }
+  finally { walletModel.finishOperation(name); }
+}
+function message(text, error = false) { walletModel.setUi({ notice: { text, error } }); }
+function errorText(error) { const raw = typeof error === 'string' ? error : error?.message || ''; if (raw.startsWith('Balance is temporarily unavailable')) return t('balanceUnavailable'); if (raw.startsWith('Transaction history is temporarily unavailable')) return t('historyError'); if (walletModel.data.ui.language === 'en' && /[А-Яа-яЁё]/.test(raw)) return t('genericError'); if (walletModel.data.ui.language === 'ru' && /^[A-Za-z]/.test(raw) && !/swap|quote|USDT|USDC|ETH|Ethereum|wallet|network|allowance|approval|[0-9a-f]{64}/i.test(raw)) return t('genericError'); return raw || t('genericError'); }
+async function run(task, progress = 'working') {
+  if (walletModel.busy) return;
+  walletModel.startOperation('action', progress);
+  message('');
+  try { await task(); }
+  catch (error) { message(errorText(error), true); }
+  finally { walletModel.finishOperation('action'); }
+}
 const short = (value) => `${value.slice(0, 8)}…${value.slice(-6)}`;
 function displayBalance(value) {
   if (value === null || value === undefined) return '—';
   const [whole, fraction = ''] = String(value).split('.');
-  const digits = whole.replace(/\B(?=(\d{3})+(?!\d))/g, lang === 'ru' ? ' ' : ',');
+  const digits = whole.replace(/\B(?=(\d{3})+(?!\d))/g, walletModel.data.ui.language === 'ru' ? ' ' : ',');
   const shownFraction = fraction.slice(0, 6).replace(/0+$/, '');
-  return shownFraction ? `${digits}${lang === 'ru' ? ',' : '.'}${shownFraction}` : digits;
+  return shownFraction ? `${digits}${walletModel.data.ui.language === 'ru' ? ',' : '.'}${shownFraction}` : digits;
 }
-const dateText = (value) => new Date(value).toLocaleString(lang === 'en' ? 'en-US' : 'ru-RU', { dateStyle: 'medium', timeStyle: 'short' });
-let state = null, overview = null, tronOverview = null, contacts = [], transfers = [], payments = [], activeTab = null, paymentDraft = null, paymentSending = false, swapQuoteData = null;
-function activeAddress() { return state?.activeAddress || null; }
+const dateText = (value) => new Date(value).toLocaleString(walletModel.data.ui.language === 'en' ? 'en-US' : 'ru-RU', { dateStyle: 'medium', timeStyle: 'short' });
+function activeAddress() { return walletModel.data.state?.activeAddress || null; }
 function renderWallets() {
   const select = $('wallet-select'); const selected = activeAddress(); select.replaceChildren();
-  if (!state?.wallets.length) select.add(new Option(t('noWallet'), ''));
-  else for (const wallet of state.wallets) select.add(new Option(`${wallet.label || short(wallet.address)}`, wallet.address));
+  if (!walletModel.data.state?.wallets.length) select.add(new Option(t('noWallet'), ''));
+  else for (const wallet of walletModel.data.state.wallets) select.add(new Option(`${wallet.label || short(wallet.address)}`, wallet.address));
   select.value = selected || '';
   $('active-address').textContent = selected || '';
-  $('tron-address').textContent = state?.tronAddress || '';
+  $('tron-address').textContent = walletModel.data.state?.tronAddress || '';
   $('receive-eth').textContent = selected || '';
-  $('receive-tron').textContent = state?.tronAddress || '';
+  $('receive-tron').textContent = walletModel.data.state?.tronAddress || '';
   $('remove-wallet').hidden = !selected;
   $('rename-wallet-form').hidden = !selected;
-  $('rename-wallet').value = state?.wallets.find((wallet) => wallet.address === selected)?.label || '';
+  $('rename-wallet').value = walletModel.data.state?.wallets.find((wallet) => wallet.address === selected)?.label || '';
 }
 function renderState() {
-  if (!state) return;
+  if (!walletModel.data.state) return;
   const selected = !!activeAddress();
   $('empty-state').hidden = selected;
   $('balance-content').hidden = !selected;
-  $('refresh-balance').disabled = !selected;
-  $('key-setup').hidden = !selected || !!state.signerAddress || !state.keychainAvailable;
-  $('delete-wallet').hidden = !state.signerAddress;
-  $('copy-private-key').hidden = !state.signerAddress || !state.hasPaymentPassword;
-  $('copy-address').disabled = !selected;
-  const canPay = selected && state.keychainAvailable && !!state.signerAddress && state.hasPaymentPassword;
+  $('key-setup').hidden = !selected || !!walletModel.data.state.signerAddress || !walletModel.data.state.keychainAvailable;
+  $('delete-wallet').hidden = !walletModel.data.state.signerAddress;
+  $('copy-private-key').hidden = !walletModel.data.state.signerAddress || !walletModel.data.state.hasPaymentPassword;
+  const canPay = selected && walletModel.data.state.keychainAvailable && !!walletModel.data.state.signerAddress && walletModel.data.state.hasPaymentPassword;
   $('send-form').hidden = !selected;
   $('swap-form').hidden = !canPay;
-  const reason = !selected ? 'noWallet' : !state.keychainAvailable ? 'keychainUnavailable' : !state.signerAddress ? 'watchOnly' : 'ready';
+  const reason = !selected ? 'noWallet' : !walletModel.data.state.keychainAvailable ? 'keychainUnavailable' : !walletModel.data.state.signerAddress ? 'watchOnly' : 'ready';
   $('payment-state').textContent = t(reason);
   $('swap-state').textContent = t(reason);
-  $('key-state').textContent = !selected ? t('noWallet') : state.signerAddress ? t('keyProtected') : t('keyMissing');
-  $('infura-state').textContent = t(state.hasInfuraKey ? 'infuraSaved' : 'publicRpcDefault');
+  $('key-state').textContent = !selected ? t('noWallet') : walletModel.data.state.signerAddress ? t('keyProtected') : t('keyMissing');
+  $('infura-state').textContent = t(walletModel.data.state.hasInfuraKey ? 'infuraSaved' : 'publicRpcDefault');
 }
-function renderOverview(cached = false) {
-  for (const [symbol, key] of [['eth','eth'], ['usdt','usdt'], ['usdc','usdc']]) { const node = $(`inspect-${symbol}`); node.textContent = displayBalance(overview?.[key]); node.title = overview?.[key] ?? ''; }
-  const stables = [overview?.usdt, overview?.usdc, tronOverview?.usdt];
+function renderOverview() {
+  for (const [symbol, key] of [['eth','eth'], ['usdt','usdt'], ['usdc','usdc']]) { const node = $(`inspect-${symbol}`); node.textContent = displayBalance(walletModel.data.overview?.[key]); node.title = walletModel.data.overview?.[key] ?? ''; }
+  renderSwapBalance();
+  const time = walletModel.data.overview?.fetchedAt ? dateText(walletModel.data.overview.fetchedAt) : '';
+  $('updated-at').textContent = time ? `${t(walletModel.data.overviewCached ? 'lastSaved' : 'updated')} ${time}` : '';
+  const unavailable = walletModel.data.overview?.staleFields || [walletModel.data.overview?.eth === null && 'ETH', walletModel.data.overview?.usdt === null && 'USDT', walletModel.data.overview?.usdc === null && 'USDC'].filter(Boolean);
+  $('data-warning').hidden = !unavailable.length; $('data-warning').textContent = unavailable.length ? `${walletModel.data.ui.language === 'en' ? 'Live balance unavailable; showing last saved value where possible' : 'Свежий баланс недоступен; где возможно, показано последнее сохранённое значение'}: ${unavailable.join(', ')}` : '';
+  if (walletModel.data.overviewUnavailable) {
+    $('data-warning').hidden = false;
+    const saved = walletModel.data.overview?.fetchedAt;
+    $('data-warning').textContent = saved ? `${t('balanceUnavailable')}. ${t('lastSaved')}: ${dateText(saved)}` : t('balanceUnavailable');
+  }
+}
+function renderTotalBalance() {
+  const stables = [walletModel.data.overview?.usdt, walletModel.data.overview?.usdc, walletModel.data.tronOverview?.usdt];
   const known = stables.some((value) => value !== null && value !== undefined);
   $('total-balance').textContent = known ? `≈ $${displayBalance(stables.reduce((sum, value) => sum + Number(value || 0), 0).toFixed(2))}` : '—';
-  renderSwapBalance();
-  const time = overview?.fetchedAt ? dateText(overview.fetchedAt) : '';
-  $('updated-at').textContent = time ? `${t(cached ? 'lastSaved' : 'updated')} ${time}` : '';
-  const unavailable = overview?.staleFields || [overview?.eth === null && 'ETH', overview?.usdt === null && 'USDT', overview?.usdc === null && 'USDC'].filter(Boolean);
-  $('data-warning').hidden = !unavailable.length; $('data-warning').textContent = unavailable.length ? `${lang === 'en' ? 'Live balance unavailable; showing last saved value where possible' : 'Свежий баланс недоступен; где возможно, показано последнее сохранённое значение'}: ${unavailable.join(', ')}` : '';
 }
-function renderTron() { for (const [id, key] of [['inspect-trx','trx'], ['inspect-tron-usdt','usdt']]) { const node = $(id); node.textContent = displayBalance(tronOverview?.[key]); node.title = tronOverview?.[key] ?? ''; } if (tronOverview && !tronOverview.activated) { $('tron-warning').textContent = t('tronNeedsActivation'); $('tron-warning').hidden = false; } }
-async function refreshBalance() { const who = activeAddress(); if (!who) return; const result = await call('inspectAddress', { walletAddress: who }); if (who === activeAddress()) { overview = result; renderOverview(); } }
-async function refreshTron() { const who = activeAddress(); if (!who) return; const result = await call('inspectTron', { walletAddress: who }); if (who === activeAddress()) { tronOverview = result; $('tron-warning').hidden = true; renderTron(); } }
+function renderTron() {
+  const { tronOverview, tronUnavailable } = walletModel.data;
+  for (const [id, key] of [['inspect-trx','trx'], ['inspect-tron-usdt','usdt']]) {
+    const node = $(id); node.textContent = displayBalance(tronOverview?.[key]); node.title = tronOverview?.[key] ?? '';
+  }
+  const warning = tronUnavailable ? 'tronUnavailable' : tronOverview && !tronOverview.activated ? 'tronNeedsActivation' : null;
+  $('tron-warning').hidden = !warning;
+  $('tron-warning').textContent = warning ? t(warning) : '';
+}
+async function refreshBalance() {
+  const who = activeAddress(); if (!who) return;
+  try { walletModel.setOverview(who, await call('inspectAddress', { walletAddress: who })); }
+  catch (error) { walletModel.setOverviewUnavailable(who); throw error; }
+}
+async function refreshTron() {
+  const who = activeAddress(); if (!who) return;
+  try { walletModel.setTronOverview(who, await call('inspectTron', { walletAddress: who })); }
+  catch (error) { walletModel.setTronUnavailable(who); throw error; }
+}
 async function loadState(refresh = true) {
-  state = await call('walletState');
-  overview = state.cachedOverview || null;
-  tronOverview = state.cachedTron || null;
-  renderWallets(); renderState(); renderOverview(!!overview); renderTron();
+  walletModel.setWalletState(await call('walletState'));
   if (refresh && activeAddress()) {
     try { await refreshBalance(); }
     catch (error) {
-      if (!overview) throw error;
-      $('data-warning').hidden = false;
-      $('data-warning').textContent = `${t('balanceUnavailable')}. ${t('lastSaved')}: ${dateText(overview.fetchedAt)}`;
+      if (!walletModel.data.overview) throw error;
+      // The model retains the cached balance and its warning.
     }
-    try { await refreshTron(); } catch { $('tron-warning').textContent = t('tronUnavailable'); $('tron-warning').hidden = false; }
+    try { await refreshTron(); } catch { /* The model retains the last balance and its warning. */ }
   }
 }
-$('wallet-select').addEventListener('change', (event) => run(async () => { await call('selectWallet', { walletAddress: event.target.value }); $('send-form').reset(); resetHistory(); resetSwap(); await loadState(); message(''); }, t('loading')));
-$('wallet-form').addEventListener('submit', (event) => { event.preventDefault(); run(async () => { await call('saveWatchAddress', { walletAddress: $('wallet-address').value.trim(), label: $('wallet-label').value }); $('wallet-form').reset(); $('watch-wallet-setup').open = false; resetHistory(); await loadState(); message(t('walletSaved')); }, t('loading')); });
-$('rename-wallet-form').addEventListener('submit', (event) => { event.preventDefault(); run(async () => { await call('renameWallet', { walletAddress: activeAddress(), label: $('rename-wallet').value }); await loadState(false); message(t('nameSaved')); }, t('loading')); });
-$('remove-wallet').addEventListener('click', () => run(async () => { const who = activeAddress(); if (!who) return; const yes = await tiny.dialog.confirm(t('removeConfirm'), { detail: `${who}\n${t('removeHint')}`, ok: t('delete'), cancel: t('cancel') }); if (!yes) return; await call('removeWallet', { walletAddress: who }); resetHistory(); await loadState(); message(t('walletRemoved')); }));
-$('refresh-balance').addEventListener('click', () => run(async () => { const results = await Promise.allSettled([refreshBalance(), refreshTron()]); if (results[1].status === 'rejected') { $('tron-warning').hidden = false; $('tron-warning').textContent = t('tronUnavailable'); } if (results[0].status === 'rejected') throw results[0].reason; message(''); }, t('checkingBalance')));
+$('wallet-select').addEventListener('change', (event) => run(async () => { await call('selectWallet', { walletAddress: event.target.value }); $('send-form').reset(); await loadState(); message(''); }, 'loading'));
+$('wallet-form').addEventListener('submit', (event) => { event.preventDefault(); run(async () => { await call('saveWatchAddress', { walletAddress: $('wallet-address').value.trim(), label: $('wallet-label').value }); $('wallet-form').reset(); walletModel.setPanel('watch-wallet-setup', false); await loadState(); message(t('walletSaved')); }, 'loading'); });
+$('rename-wallet-form').addEventListener('submit', (event) => { event.preventDefault(); run(async () => { await call('renameWallet', { walletAddress: activeAddress(), label: $('rename-wallet').value }); await loadState(false); message(t('nameSaved')); }, 'loading'); });
+$('remove-wallet').addEventListener('click', () => run(async () => { const who = activeAddress(); if (!who) return; const yes = await tiny.dialog.confirm(t('removeConfirm'), { detail: `${who}\n${t('removeHint')}`, ok: t('delete'), cancel: t('cancel') }); if (!yes) return; await call('removeWallet', { walletAddress: who }); await loadState(); message(t('walletRemoved')); }));
+$('refresh-balance').addEventListener('click', () => run(async () => { const results = await Promise.allSettled([refreshBalance(), refreshTron()]); if (results[0].status === 'rejected') throw results[0].reason; message(''); }, 'checkingBalance'));
 $('copy-address').addEventListener('click', () => run(async () => { await call('copyWalletAddress', { walletAddress: activeAddress() }); message(t('addressCopied')); }));
 $('copy-tron-address').addEventListener('click', () => run(async () => { await call('copyTronAddress', { walletAddress: activeAddress() }); message(t('addressCopied')); }));
-function openReceive() { $('receive-eth').textContent = activeAddress() || ''; $('receive-tron').textContent = state?.tronAddress || ''; $('receive-dialog').showModal(); }
+function openReceive() { walletModel.setUi({ modal: 'receive-dialog' }); }
 $('balance-receive').addEventListener('click', openReceive);
 $('receive-toggle').addEventListener('click', openReceive);
-$('receive-close').addEventListener('click', () => $('receive-dialog').close());
-$('eye-toggle').addEventListener('click', () => { const hidden = document.body.classList.toggle('privacy'); setIcon($('eye-toggle'), hidden ? 'eye-slash' : 'eye'); $('eye-toggle').title = t(hidden ? 'showBalance' : 'hideBalance'); });
-function resetSwap() { swapQuoteData = null; $('swap-preview').hidden = true; }
-function renderSwapBalance() { const token = $('swap-token').value; const value = token === 'USDT' ? overview?.usdt : overview?.usdc; $('swap-balance').textContent = value === null || value === undefined ? '' : `${t('balances')}: ${displayBalance(value)} ${token}`; }
-$('swap-token').addEventListener('change', () => { resetSwap(); renderSwapBalance(); });
-$('swap-amount').addEventListener('input', resetSwap);
-$('swap-form').addEventListener('submit', (event) => { event.preventDefault(); run(async () => { resetSwap(); const value = $('swap-amount').value.trim().replace(',','.'); if (!/^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/.test(value) || Number(value) <= 0) throw new Error(t('checkAmount')); const quote = await call('quoteSwap', { walletAddress: activeAddress(), tokenIn: $('swap-token').value, value }); swapQuoteData = quote; $('swap-preview-output').textContent = `≈${quote.estimatedOut} ${quote.tokenOut}`; $('swap-preview-details').textContent = `${t('swapMinimum')}: ${quote.minOut} ${quote.tokenOut} · ${t('swapPoolFee')}: ${quote.poolFeePercent}% · ${t('quoteExpires')}: ${dateText(quote.expiresAt)}`; $('swap-preview').hidden = false; message(''); }, t('loading')); });
-$('swap-continue').addEventListener('click', () => { const quote = swapQuoteData; if (!quote || Date.parse(quote.expiresAt) <= Date.now()) { resetSwap(); message(t('quoteExpires'), true); return; } paymentDraft = { kind:'swap', quoteId:quote.id, locale:lang }; $('payment-dialog-summary').textContent = `${quote.amountIn} ${quote.tokenIn} → ≈${quote.estimatedOut} ${quote.tokenOut}\n${t('swapMinimum')}: ${quote.minOut} ${quote.tokenOut}\n${t('from')}: ${activeAddress()}`; $('payment-password-error').textContent = ''; $('payment-password').value = ''; $('payment-password').name = `manual-password-${Date.now()}`; $('payment-password-dialog').showModal(); $('payment-password').focus(); });
-$('copy-private-key').addEventListener('click', () => { $('secret-error').textContent = ''; $('secret-password').value = ''; $('secret-password').name = `manual-secret-${Date.now()}`; $('secret-dialog').showModal(); $('secret-password').focus(); });
-$('cancel-secret').addEventListener('click', () => $('secret-dialog').close());
-$('secret-dialog').addEventListener('close', () => { $('secret-password').value = ''; });
-$('secret-form').addEventListener('submit', async (event) => { event.preventDefault(); const password = $('secret-password').value; $('secret-password').value = ''; $('confirm-secret').disabled = true; $('cancel-secret').disabled = true; try { const result = await call('copyPrivateKey', { walletAddress:activeAddress(), password, locale:lang }); if (result?.cancelled) { $('secret-dialog').close(); return; } $('secret-dialog').close(); message(t('secretCopied')); } catch (error) { $('secret-error').textContent = errorText(error); $('secret-password').focus(); } finally { $('confirm-secret').disabled = false; $('cancel-secret').disabled = false; } });
-function showScreen(name) {
-  window.scrollTo(0, 0);
-  activeTab = name;
+$('receive-close').addEventListener('click', () => walletModel.closeModal('receive-dialog'));
+$('eye-toggle').addEventListener('click', () => walletModel.setUi({ privacy: !walletModel.data.ui.privacy }));
+function renderSwapQuote() {
+  const quote = walletModel.data.swapQuoteData;
+  $('swap-preview').hidden = !quote;
+  if (!quote) return;
+  $('swap-preview-output').textContent = `≈${quote.estimatedOut} ${quote.tokenOut}`;
+  $('swap-preview-details').textContent = `${t('swapMinimum')}: ${quote.minOut} ${quote.tokenOut} · ${t('swapPoolFee')}: ${quote.poolFeePercent}% · ${t('quoteExpires')}: ${dateText(quote.expiresAt)}`;
+}
+function renderSwapBalance() { const token = $('swap-token').value; const value = token === 'USDT' ? walletModel.data.overview?.usdt : walletModel.data.overview?.usdc; $('swap-balance').textContent = value === null || value === undefined ? '' : `${t('balances')}: ${displayBalance(value)} ${token}`; }
+$('swap-token').addEventListener('change', () => { walletModel.resetSwap(); renderSwapBalance(); });
+$('swap-amount').addEventListener('input', () => walletModel.resetSwap());
+$('swap-form').addEventListener('submit', (event) => { event.preventDefault(); run(async () => { walletModel.resetSwap(); const value = $('swap-amount').value.trim().replace(',','.'); if (!/^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/.test(value) || Number(value) <= 0) throw new Error(t('checkAmount')); const who = activeAddress(); const quote = await call('quoteSwap', { walletAddress: who, tokenIn: $('swap-token').value, value }); walletModel.setSwapQuote(who, quote); message(''); }, 'loading'); });
+$('swap-continue').addEventListener('click', () => {
+  if (walletModel.busy) return;
+  const quote = walletModel.data.swapQuoteData;
+  if (!quote || Date.parse(quote.expiresAt) <= Date.now()) { walletModel.resetSwap(); message(t('quoteExpires'), true); return; }
+  walletModel.openPayment({ kind:'swap', quoteId:quote.id, locale:walletModel.data.ui.language });
+});
+$('copy-private-key').addEventListener('click', () => walletModel.setUi({ modal: 'secret-dialog', secretError: '' }));
+$('cancel-secret').addEventListener('click', () => walletModel.closeModal('secret-dialog'));
+$('secret-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (walletModel.busy) return;
+  const password = $('secret-password').value;
+  $('secret-password').value = '';
+  walletModel.setUi({ secretError: '' });
+  walletModel.startOperation('secret', 'copyingSecret');
+  try {
+    const result = await call('copyPrivateKey', { walletAddress:activeAddress(), password, locale:walletModel.data.ui.language });
+    walletModel.closeModal('secret-dialog');
+    if (!result?.cancelled) message(t('secretCopied'));
+  } catch (error) { walletModel.setUi({ secretError: errorText(error) }); }
+  finally { walletModel.finishOperation('secret'); }
+});
+function renderScreen() {
+  const name = walletModel.data.ui.screen;
+  if (!$(`screen-${name}`).classList.contains('active')) window.scrollTo(0, 0);
   for (const key of ['wallet','pay','swap','history','settings']) { const screen = $(`screen-${key}`); screen.hidden = name !== key; screen.classList.toggle('active', name === key); }
   document.querySelectorAll('.bottom-nav .nav-item').forEach((item) => item.classList.toggle('active', item.dataset.screen === name));
   const main = name === 'wallet';
@@ -178,15 +229,17 @@ function showScreen(name) {
   $('screen-title').hidden = main;
   $('network-badge').hidden = !main;
   $('screen-title').textContent = { pay:t('actionPay'), swap:t('swap'), history:t('history'), settings:t('settings') }[name] || '';
+}
+function showScreen(name) {
+  walletModel.setUi({ screen: name });
   if (name === 'pay') {
     loadContacts().catch((error) => message(errorText(error), true));
     const who = activeAddress();
-    if (who) call('listPayments', { walletAddress: who }).then((list) => { if (who === activeAddress()) { payments = list; renderPayments(); renderRecipientOptions(); } }).catch(() => {});
+    if (who) call('listPayments', { walletAddress: who }).then((list) => walletModel.setHistory(who, { payments: list })).catch(() => {});
   }
 }
 $('back-button').addEventListener('click', () => showScreen('wallet'));
 document.querySelectorAll('[data-screen]').forEach((button) => button.addEventListener('click', () => showScreen(button.dataset.screen)));
-function resetHistory() { transfers = []; payments = []; $('history-content').hidden = true; $('tx-result').textContent = ''; renderTransfers(); renderPayments(); }
 function historyRow({ icon, iconClass, title, date, note, sum, sumClass, status, details, action }) {
   const row = document.createElement('article'); row.className = 'history-item';
   const top = document.createElement('div'); top.className = 'history-top';
@@ -206,29 +259,210 @@ function historyRow({ icon, iconClass, title, date, note, sum, sumClass, status,
   return row;
 }
 function historyEmpty(list, key) { const p = document.createElement('p'); p.className = 'history-empty'; p.textContent = t(key); list.append(p); }
-const refreshPayments = () => run(async () => { payments = await call('listPayments', { walletAddress: activeAddress() }); renderPayments(); renderRecipientOptions(); message(''); }, t('checkingHistory'));
-function renderTransfers() { const list = $('inspect-transfers'); list.replaceChildren(); if (!transfers.length) return historyEmpty(list, 'networkTransfersEmpty'); const sorted = [...transfers].sort((a, b) => Date.parse(b.date) - Date.parse(a.date)); for (const item of sorted) { const incoming = item.to.toLowerCase() === activeAddress()?.toLowerCase(); list.append(historyRow({ icon: incoming ? 'arrow-down' : 'arrow-up', iconClass: incoming ? 'in' : 'out', title: t(incoming ? 'incoming' : 'outgoing'), date: dateText(item.date), sum: `${incoming ? '+' : '−'}${item.value} ${item.token || 'USDT'}`, sumClass: incoming ? 'in' : 'out', details: `${t('from')}: ${item.from}\n${t('to')}: ${item.to}\n${t('hash')}: ${item.hash}` })); } }
-function renderPayments() { const list = $('payment-history'); list.replaceChildren(); if (!payments.length) return historyEmpty(list, 'localPaymentsEmpty'); const sorted = [...payments].sort((a, b) => Date.parse(b.date || b.submittedAt) - Date.parse(a.date || a.submittedAt)); for (const payment of sorted) { const swap = payment.kind === 'swap'; const statusKey = payment.status === 'confirmed' ? 'statusConfirmed' : payment.status === 'failed' ? 'statusFailed' : 'statusPending'; list.append(historyRow({ icon: swap ? 'swap' : 'arrow-up', iconClass: swap ? 'swap' : 'out', title: swap ? `${t('swapOperation')} ${payment.token} → ${payment.tokenOut}` : payment.counterparty || short(payment.recipient), date: `${t(payment.status === 'pending' ? 'sentAt' : payment.status === 'confirmed' ? 'paidAt' : 'failedAt')} ${dateText(payment.date || payment.submittedAt)}`, note: payment.description || '', sum: swap ? `−${payment.amount} ${payment.token} → ≈${payment.expectedOut} ${payment.tokenOut}` : `−${payment.amount} ${payment.token || 'USDT'}`, sumClass:'out', status: { key: payment.status, text: t(statusKey) }, details: `${t('to')}: ${payment.recipient}\n${t('hash')}: ${payment.hash}`, action: payment.status === 'pending' ? { label: t('refreshStatus'), onclick: refreshPayments } : undefined })); } }
-$('load-history').addEventListener('click', () => run(async () => { if (!activeAddress()) { message(t('noWallet'), true); return; } const who = activeAddress(); const results = await Promise.allSettled([call('loadTransferHistory', { walletAddress: who }), call('listPayments', { walletAddress: who })]); if (who !== activeAddress()) return; transfers = results[0].status === 'fulfilled' ? results[0].value.transfers : []; payments = results[1].status === 'fulfilled' ? results[1].value : []; $('history-content').hidden = false; renderTransfers(); renderPayments(); renderRecipientOptions(); if (results[0].status === 'rejected') message(t('historyError'), true); else if (results[1].status === 'rejected') message(errorText(results[1].reason), true); else message(results[0].value.unavailable?.length ? `${t('partialHistory')}: ${results[0].value.unavailable.join(', ')}` : ''); }, t('checkingHistory')));
-$('status-form').addEventListener('submit', (event) => { event.preventDefault(); run(async () => { const result = await call('transactionStatus', { txHash: $('tx-hash').value.trim() }); const status = lang === 'en' ? ({ 'Успешно':'Success', 'Ошибка':'Failed', 'Ожидает подтверждения или не найдена':'Pending or not found' }[result.status] || result.status) : result.status; $('tx-result').textContent = result.block ? `${status} · ${result.block}` : status; message(t('statusResult')); }); });
-function contactFor(address) { const value = (address || '').trim().toLowerCase(); return value ? contacts.find((item) => item.address.toLowerCase() === value) : undefined; }
+const refreshPayments = () => run(async () => { const who = activeAddress(); const list = await call('listPayments', { walletAddress: who }); walletModel.setHistory(who, { payments: list }); message(''); }, 'checkingHistory');
+function renderTransfers() { const list = $('inspect-transfers'); list.replaceChildren(); if (!walletModel.data.transfers.length) return historyEmpty(list, 'networkTransfersEmpty'); const sorted = [...walletModel.data.transfers].sort((a, b) => Date.parse(b.date) - Date.parse(a.date)); for (const item of sorted) { const incoming = item.to.toLowerCase() === activeAddress()?.toLowerCase(); list.append(historyRow({ icon: incoming ? 'arrow-down' : 'arrow-up', iconClass: incoming ? 'in' : 'out', title: t(incoming ? 'incoming' : 'outgoing'), date: dateText(item.date), sum: `${incoming ? '+' : '−'}${item.value} ${item.token || 'USDT'}`, sumClass: incoming ? 'in' : 'out', details: `${t('from')}: ${item.from}\n${t('to')}: ${item.to}\n${t('hash')}: ${item.hash}` })); } }
+function renderPayments() { const list = $('payment-history'); list.replaceChildren(); if (!walletModel.data.payments.length) return historyEmpty(list, 'localPaymentsEmpty'); const sorted = [...walletModel.data.payments].sort((a, b) => Date.parse(b.date || b.submittedAt) - Date.parse(a.date || a.submittedAt)); for (const payment of sorted) { const swap = payment.kind === 'swap'; const statusKey = payment.status === 'confirmed' ? 'statusConfirmed' : payment.status === 'failed' ? 'statusFailed' : 'statusPending'; list.append(historyRow({ icon: swap ? 'swap' : 'arrow-up', iconClass: swap ? 'swap' : 'out', title: swap ? `${t('swapOperation')} ${payment.token} → ${payment.tokenOut}` : payment.counterparty || short(payment.recipient), date: `${t(payment.status === 'pending' ? 'sentAt' : payment.status === 'confirmed' ? 'paidAt' : 'failedAt')} ${dateText(payment.date || payment.submittedAt)}`, note: payment.description || '', sum: swap ? `−${payment.amount} ${payment.token} → ≈${payment.expectedOut} ${payment.tokenOut}` : `−${payment.amount} ${payment.token || 'USDT'}`, sumClass:'out', status: { key: payment.status, text: t(statusKey) }, details: `${t('to')}: ${payment.recipient}\n${t('hash')}: ${payment.hash}`, action: payment.status === 'pending' ? { label: t('refreshStatus'), onclick: refreshPayments } : undefined })); } }
+$('load-history').addEventListener('click', () => run(async () => { if (!activeAddress()) { message(t('noWallet'), true); return; } const who = activeAddress(); const results = await Promise.allSettled([call('loadTransferHistory', { walletAddress: who }), call('listPayments', { walletAddress: who })]); if (who !== activeAddress()) return; walletModel.setHistory(who, { transfers: results[0].status === 'fulfilled' ? results[0].value.transfers : [], payments: results[1].status === 'fulfilled' ? results[1].value : [] }, true); if (results[0].status === 'rejected') message(t('historyError'), true); else if (results[1].status === 'rejected') message(errorText(results[1].reason), true); else message(results[0].value.unavailable?.length ? `${t('partialHistory')}: ${results[0].value.unavailable.join(', ')}` : ''); }, 'checkingHistory'));
+$('status-form').addEventListener('submit', (event) => { event.preventDefault(); run(async () => { const result = await call('transactionStatus', { txHash: $('tx-hash').value.trim() }); walletModel.setUi({ transactionStatus: result }); message(t('statusResult')); }); });
+function contactFor(address) { const value = (address || '').trim().toLowerCase(); return value ? walletModel.data.contacts.find((item) => item.address.toLowerCase() === value) : undefined; }
 function renderRecipientHint() { const contact = contactFor($('recipient').value); $('selected-contact-info').hidden = !contact; $('selected-contact-info').textContent = contact ? [contact.description, contact.lastPaymentAt ? `${t('lastPayment')}: ${dateText(contact.lastPaymentAt)}` : t('noPayments')].filter(Boolean).join(' · ') : ''; }
-function renderRecipientOptions() { const list = $('recipient-options'); list.replaceChildren(); const seen = new Set(); const add = (address, label) => { const value = (address || '').trim(); const key = value.toLowerCase(); if (!value || seen.has(key)) return; seen.add(key); list.append(new Option(label, value)); }; for (const contact of contacts) add(contact.address, contact.name); for (const payment of payments) if (payment.kind !== 'swap') add(payment.recipient, payment.counterparty || short(payment.recipient)); }
+function renderRecipientOptions() { const list = $('recipient-options'); list.replaceChildren(); const seen = new Set(); const add = (address, label) => { const value = (address || '').trim(); const key = value.toLowerCase(); if (!value || seen.has(key)) return; seen.add(key); list.append(new Option(label, value)); }; for (const contact of walletModel.data.contacts) add(contact.address, contact.name); for (const payment of walletModel.data.payments) if (payment.kind !== 'swap') add(payment.recipient, payment.counterparty || short(payment.recipient)); }
 $('recipient').addEventListener('input', renderRecipientHint);
-function renderContacts() { renderRecipientOptions(); const list = $('contacts-list'); list.replaceChildren(); if (!contacts.length) { const p = document.createElement('p'); p.className = 'muted'; p.textContent = t('noPayments'); list.append(p); return; } for (const contact of contacts) { const row = document.createElement('article'); row.className = 'contact-row'; const body = document.createElement('div'); const name = document.createElement('strong'); name.textContent = contact.name; const addr = document.createElement('span'); addr.className = 'mono'; addr.textContent = contact.address; body.append(name,addr); if (contact.description) { const p = document.createElement('p'); p.textContent = contact.description; body.append(p); } if (contact.lastPaymentAt) { const p = document.createElement('p'); p.textContent = `${t('lastPayment')}: ${dateText(contact.lastPaymentAt)}`; body.append(p); } const actions = document.createElement('div'); actions.className = 'contact-actions'; const choose = document.createElement('button'); choose.type = 'button'; choose.className = 'secondary'; choose.textContent = t('choose'); choose.onclick = () => { $('recipient').value = contact.address; $('recipient-name').value = contact.name; renderRecipientHint(); $('contacts-panel').open = false; }; const edit = document.createElement('button'); edit.type = 'button'; edit.className = 'text-button'; edit.textContent = t('edit'); edit.onclick = () => { $('contact-name').value = contact.name; $('contact-address').value = contact.address; $('contact-description').value = contact.description; $('contact-editor').open = true; }; const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'text-button danger'; remove.textContent = t('delete'); remove.onclick = () => run(async () => { const yes = await tiny.dialog.confirm(t('deleteContactConfirm'), { detail: contact.address, ok: t('delete'), cancel: t('cancel') }); if (!yes) return; await call('deleteCounterparty', { recipient: contact.address }); await loadContacts(); message(t('contactDeleted')); }); actions.append(choose,edit,remove); row.append(body,actions); list.append(row); } }
-async function loadContacts() { contacts = await call('listCounterparties'); renderContacts(); }
-$('contact-form').addEventListener('submit', (event) => { event.preventDefault(); run(async () => { const contact = await call('saveCounterparty', { name: $('contact-name').value, recipient: $('contact-address').value.trim(), description: $('contact-description').value }); $('contact-form').reset(); $('contact-editor').open = false; await loadContacts(); $('recipient').value = contact.address; renderRecipientHint(); message(t('contactSaved')); }); });
+function renderContacts() { renderRecipientOptions(); const list = $('contacts-list'); list.replaceChildren(); if (!walletModel.data.contacts.length) { const p = document.createElement('p'); p.className = 'muted'; p.textContent = t('noPayments'); list.append(p); return; } for (const contact of walletModel.data.contacts) { const row = document.createElement('article'); row.className = 'contact-row'; const body = document.createElement('div'); const name = document.createElement('strong'); name.textContent = contact.name; const addr = document.createElement('span'); addr.className = 'mono'; addr.textContent = contact.address; body.append(name,addr); if (contact.description) { const p = document.createElement('p'); p.textContent = contact.description; body.append(p); } if (contact.lastPaymentAt) { const p = document.createElement('p'); p.textContent = `${t('lastPayment')}: ${dateText(contact.lastPaymentAt)}`; body.append(p); } const actions = document.createElement('div'); actions.className = 'contact-actions'; const choose = document.createElement('button'); choose.type = 'button'; choose.className = 'secondary'; choose.textContent = t('choose'); choose.onclick = () => { $('recipient').value = contact.address; $('recipient-name').value = contact.name; renderRecipientHint(); walletModel.setPanel('contacts-panel', false); }; const edit = document.createElement('button'); edit.type = 'button'; edit.className = 'text-button'; edit.textContent = t('edit'); edit.onclick = () => { $('contact-name').value = contact.name; $('contact-address').value = contact.address; $('contact-description').value = contact.description; walletModel.setPanel('contact-editor', true); }; const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'text-button danger'; remove.textContent = t('delete'); remove.onclick = () => run(async () => { const yes = await tiny.dialog.confirm(t('deleteContactConfirm'), { detail: contact.address, ok: t('delete'), cancel: t('cancel') }); if (!yes) return; await call('deleteCounterparty', { recipient: contact.address }); await loadContacts(); message(t('contactDeleted')); }); actions.append(choose,edit,remove); row.append(body,actions); list.append(row); } }
+async function loadContacts() { walletModel.setContacts(await call('listCounterparties')); }
+$('contact-form').addEventListener('submit', (event) => { event.preventDefault(); run(async () => { const contact = await call('saveCounterparty', { name: $('contact-name').value, recipient: $('contact-address').value.trim(), description: $('contact-description').value }); $('contact-form').reset(); walletModel.setPanel('contact-editor', false); await loadContacts(); $('recipient').value = contact.address; renderRecipientHint(); message(t('contactSaved')); }); });
 function matchingPassword(firstId, secondId) { const first = $(firstId), second = $(secondId); if (first.value !== second.value) { second.setCustomValidity(t('passwordMismatch')); second.reportValidity(); second.addEventListener('input', () => second.setCustomValidity(''), { once:true }); return null; } return first.value; }
 $('infura-form').addEventListener('submit', (event) => { event.preventDefault(); run(async () => { try { await call('saveInfuraKey', { key: $('infura-key').value }); } finally { $('infura-key').value = ''; } await loadState(false); message(t('apiSaved')); }); });
 $('import-form').addEventListener('submit', (event) => { event.preventDefault(); const password = matchingPassword('import-password','import-password-confirm'); if (password === null) return; run(async () => { try { await call('importWallet', { privateKey: $('private-key').value, password }); } finally { $('private-key').value = ''; $('import-password').value = ''; $('import-password-confirm').value = ''; } await loadState(false); message(t('keyImported')); }); });
 $('cwg-form').addEventListener('submit', (event) => { event.preventDefault(); const newPassword = matchingPassword('cwg-new-password','cwg-new-password-confirm'); if (newPassword === null) return; run(async () => { try { await call('importCwgKey', { encryptedKey: $('cwg-key').value, password: $('cwg-password').value, newPassword }); } finally { $('cwg-key').value = ''; $('cwg-password').value = ''; $('cwg-new-password').value = ''; $('cwg-new-password-confirm').value = ''; } await loadState(false); message(t('keyImported')); }); });
-$('create-form').addEventListener('submit', (event) => { event.preventDefault(); const password = matchingPassword('create-password','create-password-confirm'); if (password === null) return; run(async () => { try { const result = await call('createWallet', { password, label: $('create-label').value }); $('backup-key').value = result.backupKey; $('backup').showModal(); $('create-label').value = ''; resetHistory(); resetSwap(); showScreen('wallet'); await loadState(false); if (!overview) overview = { address: result.address, eth: '0', usdt: '0', usdc: '0', staleFields: [] }; if (!tronOverview) tronOverview = { trx: '0', usdt: '0', activated: false }; renderOverview(); renderTron(); message(t('walletCreated')); } finally { $('create-password').value = ''; $('create-password-confirm').value = ''; } }, t('creatingWallet')); });
-$('backup').addEventListener('cancel', (event) => event.preventDefault());
-$('hide-backup').addEventListener('click', () => { $('backup-key').value = ''; $('backup').close(); message(t('backupHidden')); });
-$('delete-wallet').addEventListener('click', () => run(async () => { if (await call('deleteWallet', { locale:lang })) { await loadState(false); message(t('keyDeleted')); } }));
-$('send-form').addEventListener('submit', (event) => { event.preventDefault(); const value = $('amount').value.trim().replace(',','.'); const recipient = $('recipient').value.trim(); if (!/^0x[0-9a-fA-F]{40}$/.test(recipient) || !/^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/.test(value) || Number(value) <= 0) { message(t('checkAmount'),true); return; } const blockReason = !activeAddress() ? 'noWallet' : !state?.keychainAvailable ? 'keychainUnavailable' : !state?.signerAddress ? 'watchOnly' : null; if (blockReason) { message(t(blockReason), true); return; } paymentDraft = { kind:'payment', walletAddress:activeAddress(), recipient, value, token:$('payment-token').value, description:$('payment-description').value.trim(), contactName:$('recipient-name').value.trim(), locale:lang }; $('payment-dialog-summary').textContent = `${value} ${paymentDraft.token}\n${t('from')}: ${activeAddress()}\n${t('to')}: ${recipient}${paymentDraft.description ? `\n${t('note')}: ${paymentDraft.description}` : ''}`; $('payment-password-error').textContent = ''; $('payment-password').value = ''; $('payment-password').name = `manual-password-${Date.now()}`; $('payment-password-dialog').showModal(); $('payment-password').focus(); });
-$('cancel-payment').addEventListener('click', () => $('payment-password-dialog').close());
-$('payment-password-dialog').addEventListener('cancel', (event) => { if (paymentSending) event.preventDefault(); });
-$('payment-password-dialog').addEventListener('close', () => { $('payment-password').value = ''; paymentDraft = null; });
-$('payment-password-form').addEventListener('submit', async (event) => { event.preventDefault(); if (paymentSending || !paymentDraft) return; const draft = paymentDraft; const password = $('payment-password').value; $('payment-password').value = ''; paymentSending = true; $('confirm-payment-button').disabled = true; $('cancel-payment').disabled = true; $('payment-password-error').textContent = ''; $('payment-busy').hidden = false; $('payment-busy').textContent = t('checkingFee'); $('payment-busy').prepend(Object.assign(document.createElement('span'), { className: 'spinner' })); try { const result = await call(draft.kind === 'swap' ? 'executeSwap' : 'sendToken', { ...draft, password }); $('payment-password-dialog').close(); if (result.cancelled) { message(t('paymentCancelled')); return; } $('tx-hash').value = result.hash; if (draft.kind === 'swap') resetSwap(); else { $('amount').value = ''; $('payment-description').value = ''; } let contactSaveFailed = false; if (draft.kind === 'payment' && draft.contactName && !contactFor(draft.recipient)) { try { await call('saveCounterparty', { name: draft.contactName, recipient: draft.recipient, description: '' }); $('recipient-name').value = ''; await loadContacts(); } catch { contactSaveFailed = true; } } showScreen('history'); message(t('checkingHistory'), false, true); try { payments = await call('listPayments', { walletAddress: activeAddress() }); } catch {} $('history-content').hidden = false; renderPayments(); renderRecipientOptions(); message(result.metadataSaved ? `${t(draft.kind === 'swap' ? 'swapSent' : 'paymentSent')}: ${result.hash}` : `${t('paymentNotSaved')} ${result.hash}`, !result.metadataSaved); if (contactSaveFailed) message(lang === 'en' ? 'Payment sent, but the contact could not be saved.' : 'Платёж отправлен, но контакт сохранить не удалось.', true); refreshBalance().catch(() => {}); } catch (error) { try { await loadState(false); } catch {} $('payment-password-error').textContent = errorText(error); $('payment-password').focus(); } finally { paymentSending = false; $('payment-busy').hidden = true; $('confirm-payment-button').disabled = false; $('cancel-payment').disabled = false; } });
-injectIcons(); showScreen('wallet'); translate(); run(async () => { await loadState(); message(''); }, t('loading'));
+$('create-form').addEventListener('submit', (event) => { event.preventDefault(); const password = matchingPassword('create-password','create-password-confirm'); if (password === null) return; run(async () => { try { const result = await call('createWallet', { password, label: $('create-label').value }); $('backup-key').value = result.backupKey; walletModel.setUi({ modal: 'backup' }); $('create-label').value = ''; showScreen('wallet'); await loadState(false); if (!walletModel.data.overview) walletModel.setOverview(result.address, { address: result.address, eth: '0', usdt: '0', usdc: '0', staleFields: [] }); if (!walletModel.data.tronOverview) walletModel.setTronOverview(result.address, { trx: '0', usdt: '0', activated: false }); message(t('walletCreated')); } finally { $('create-password').value = ''; $('create-password-confirm').value = ''; } }, 'creatingWallet'); });
+$('hide-backup').addEventListener('click', () => { walletModel.closeModal('backup'); message(t('backupHidden')); });
+$('delete-wallet').addEventListener('click', () => run(async () => { if (await call('deleteWallet', { locale:walletModel.data.ui.language })) { await loadState(false); message(t('keyDeleted')); } }));
+$('send-form').addEventListener('submit', (event) => {
+  event.preventDefault();
+  if (walletModel.busy) return;
+  const value = $('amount').value.trim().replace(',','.');
+  const recipient = $('recipient').value.trim();
+  if (!/^0x[0-9a-fA-F]{40}$/.test(recipient) || !/^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/.test(value) || Number(value) <= 0) { message(t('checkAmount'), true); return; }
+  const blockReason = !activeAddress() ? 'noWallet' : !walletModel.data.state?.keychainAvailable ? 'keychainUnavailable' : !walletModel.data.state?.signerAddress ? 'watchOnly' : null;
+  if (blockReason) { message(t(blockReason), true); return; }
+  walletModel.openPayment({ kind:'payment', walletAddress:activeAddress(), recipient, value, token:$('payment-token').value, description:$('payment-description').value.trim(), contactName:$('recipient-name').value.trim(), locale:walletModel.data.ui.language });
+});
+$('cancel-payment').addEventListener('click', () => walletModel.closeModal('payment-password-dialog'));
+$('payment-password-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const draft = walletModel.data.ui.paymentDraft;
+  if (walletModel.busy || !draft) return;
+  const password = $('payment-password').value;
+  $('payment-password').value = '';
+  walletModel.setUi({ paymentError: '' });
+  walletModel.startOperation('payment', 'checkingFee');
+  try {
+    const result = await call(draft.kind === 'swap' ? 'executeSwap' : 'sendToken', { ...draft, password });
+    walletModel.closeModal('payment-password-dialog');
+    if (result.cancelled) { message(t('paymentCancelled')); return; }
+    $('tx-hash').value = result.hash;
+    if (draft.kind === 'swap') walletModel.resetSwap();
+    else { $('amount').value = ''; $('payment-description').value = ''; }
+    let contactSaveFailed = false;
+    if (draft.kind === 'payment' && draft.contactName && !contactFor(draft.recipient)) {
+      try {
+        await call('saveCounterparty', { name: draft.contactName, recipient: draft.recipient, description: '' });
+        $('recipient-name').value = ''; await loadContacts();
+      } catch { contactSaveFailed = true; }
+    }
+    showScreen('history');
+    walletModel.startOperation('paymentHistory', 'checkingHistory');
+    const who = activeAddress();
+    try { walletModel.setHistory(who, { payments: await call('listPayments', { walletAddress: who }) }, true); }
+    catch { walletModel.setHistory(who, {}, true); }
+    finally { walletModel.finishOperation('paymentHistory'); }
+    message(result.metadataSaved ? `${t(draft.kind === 'swap' ? 'swapSent' : 'paymentSent')}: ${result.hash}` : `${t('paymentNotSaved')} ${result.hash}`, !result.metadataSaved);
+    if (contactSaveFailed) message(walletModel.data.ui.language === 'en' ? 'Payment sent, but the contact could not be saved.' : 'Платёж отправлен, но контакт сохранить не удалось.', true);
+    refreshBalance().catch(() => {});
+  } catch (error) {
+    try { await loadState(false); } catch {}
+    walletModel.setUi({ paymentError: errorText(error) });
+  } finally { walletModel.finishOperation('payment'); }
+});
+function renderPrivacy() {
+  const hidden = walletModel.data.ui.privacy;
+  document.body.classList.toggle('privacy', hidden);
+  setIcon($('eye-toggle'), hidden ? 'eye-slash' : 'eye');
+  $('eye-toggle').title = t(hidden ? 'showBalance' : 'hideBalance');
+}
+
+function renderPaymentSummary() {
+  const draft = walletModel.data.ui.paymentDraft;
+  if (!draft) { $('payment-dialog-summary').textContent = ''; return; }
+  if (draft.kind === 'swap') {
+    const quote = walletModel.data.swapQuoteData;
+    $('payment-dialog-summary').textContent = quote ? `${quote.amountIn} ${quote.tokenIn} → ≈${quote.estimatedOut} ${quote.tokenOut}\n${t('swapMinimum')}: ${quote.minOut} ${quote.tokenOut}\n${t('from')}: ${activeAddress()}` : '';
+  } else {
+    $('payment-dialog-summary').textContent = `${draft.value} ${draft.token}\n${t('from')}: ${draft.walletAddress}\n${t('to')}: ${draft.recipient}${draft.description ? `\n${t('note')}: ${draft.description}` : ''}`;
+  }
+}
+
+function clearModalSecrets(id) {
+  if (id === 'payment-password-dialog') $('payment-password').value = '';
+  if (id === 'secret-dialog') $('secret-password').value = '';
+  if (id === 'backup') $('backup-key').value = '';
+}
+
+function renderDialogs() {
+  const modal = walletModel.data.ui.modal;
+  for (const dialog of document.querySelectorAll('dialog')) {
+    if (dialog.id !== modal && dialog.open) { dialog.close(); clearModalSecrets(dialog.id); }
+  }
+  if (!modal || $(modal).open) return;
+  const inputId = { 'payment-password-dialog': 'payment-password', 'secret-dialog': 'secret-password' }[modal];
+  if (inputId) {
+    $(inputId).value = '';
+    $(inputId).name = `manual-${inputId}-${Date.now()}`;
+  }
+  $(modal).showModal();
+  if (inputId) $(inputId).focus();
+}
+
+function renderTransactionStatus() {
+  const result = walletModel.data.ui.transactionStatus;
+  if (!result) { $('tx-result').textContent = ''; return; }
+  const status = walletModel.data.ui.language === 'en' ? ({ 'Успешно':'Success', 'Ошибка':'Failed', 'Ожидает подтверждения или не найдена':'Pending or not found' }[result.status] || result.status) : result.status;
+  $('tx-result').textContent = result.block ? `${status} · ${result.block}` : status;
+}
+
+function spinnerText(node, text) {
+  node.textContent = text;
+  node.hidden = !text;
+  if (text) node.prepend(Object.assign(document.createElement('span'), { className: 'spinner' }));
+}
+
+function renderNotice() {
+  const { notice, pending, modal } = walletModel.data.ui;
+  const progress = pending.action || pending.paymentHistory || (!['payment-password-dialog', 'secret-dialog'].includes(modal) && Object.values(pending)[0]);
+  const node = $('message');
+  node.className = !progress && notice.error ? 'notice error' : 'notice';
+  if (progress) spinnerText(node, t(progress.label));
+  else { node.textContent = notice.text; node.hidden = !notice.text; }
+}
+
+function renderOperations() {
+  const { pending } = walletModel.data.ui;
+  document.body.setAttribute('aria-busy', String(Object.keys(pending).length > 0));
+  document.querySelectorAll('button').forEach((button) => { button.disabled = walletModel.busy; button.removeAttribute('aria-busy'); });
+  $('wallet-select').disabled = walletModel.busy;
+  $('refresh-balance').disabled ||= !activeAddress();
+  $('copy-address').disabled ||= !activeAddress();
+  const targets = {
+    inspectAddress: '#refresh-balance', inspectTron: '#refresh-balance',
+    quoteSwap: '#quote-swap', listPayments: '#load-history, .refresh-btn', loadTransferHistory: '#load-history',
+    transactionStatus: '#status-form button', copyPrivateKey: '#confirm-secret',
+    copyWalletAddress: '#copy-address', copyTronAddress: '#copy-tron-address',
+    sendToken: '#confirm-payment-button', executeSwap: '#confirm-payment-button'
+  };
+  for (const [name, selector] of Object.entries(targets)) {
+    if (pending[name]) document.querySelectorAll(selector).forEach((button) => { button.disabled = true; button.setAttribute('aria-busy', 'true'); });
+  }
+  for (const [scope, id] of [['payment', 'payment-busy'], ['secret', 'secret-busy']]) {
+    spinnerText($(id), pending[scope] ? t(pending[scope].label) : '');
+  }
+  $('payment-password-form').setAttribute('aria-busy', String(!!pending.payment));
+  $('secret-form').setAttribute('aria-busy', String(!!pending.secret));
+}
+
+function renderUi(changed = ['ui']) {
+  const all = changed.includes('ui');
+  const has = (field) => all || changed.includes(`ui.${field}`);
+  if (has('language')) {
+    translate(); renderScreen(); renderPrivacy(); renderPaymentSummary(); renderTransactionStatus();
+  }
+  if (has('screen')) renderScreen();
+  if (has('privacy')) renderPrivacy();
+  if (has('paymentDraft')) renderPaymentSummary();
+  if (has('modal')) renderDialogs();
+  if (has('paymentError')) {
+    $('payment-password-error').textContent = walletModel.data.ui.paymentError;
+    if (walletModel.data.ui.paymentError && walletModel.data.ui.modal === 'payment-password-dialog') $('payment-password').focus();
+  }
+  if (has('secretError')) {
+    $('secret-error').textContent = walletModel.data.ui.secretError;
+    if (walletModel.data.ui.secretError && walletModel.data.ui.modal === 'secret-dialog') $('secret-password').focus();
+  }
+  if (has('transactionStatus')) renderTransactionStatus();
+  if (has('panels')) for (const [id, open] of Object.entries(walletModel.data.ui.panels)) if ($(id).open !== open) $(id).open = open;
+  if (has('pending') || has('notice') || has('language') || has('modal')) { renderNotice(); renderOperations(); }
+}
+
+for (const dialog of document.querySelectorAll('dialog')) {
+  dialog.addEventListener('cancel', (event) => {
+    event.preventDefault();
+    const { pending } = walletModel.data.ui;
+    if (dialog.id === 'backup' || (dialog.id === 'payment-password-dialog' && pending.payment) || (dialog.id === 'secret-dialog' && pending.secret)) return;
+    walletModel.closeModal(dialog.id);
+  });
+  dialog.addEventListener('close', () => {
+    if (dialog.open) return;
+    clearModalSecrets(dialog.id);
+    walletModel.closeModal(dialog.id);
+  });
+}
+for (const id of Object.keys(walletModel.data.ui.panels)) $(id).addEventListener('toggle', () => walletModel.setPanel(id, $(id).open));
+
+// Model notifications are the only data-driven path to DOM updates.
+walletModel.subscribe((_snapshot, changed) => {
+  if (changed.includes('state')) { renderWallets(); renderState(); }
+  if (changed.includes('overview') || changed.includes('overviewUnavailable')) renderOverview();
+  if (changed.includes('tronOverview') || changed.includes('tronUnavailable')) renderTron();
+  if (changed.includes('overview') || changed.includes('tronOverview')) renderTotalBalance();
+  if (changed.includes('contacts')) { renderContacts(); renderRecipientHint(); }
+  if (changed.includes('transfers')) renderTransfers();
+  if (changed.includes('payments')) { renderPayments(); renderRecipientOptions(); }
+  if (changed.includes('historyLoaded')) {
+    $('history-content').hidden = !walletModel.data.historyLoaded;
+  }
+  if (changed.includes('swapQuoteData')) renderSwapQuote();
+  if (changed.some((field) => field === 'ui' || field.startsWith('ui.'))) renderUi(changed);
+  if (changed.some((field) => ['state', 'contacts', 'payments'].includes(field))) renderOperations();
+});
+
+injectIcons(); renderUi(); run(async () => { await loadState(); message(''); }, 'loading');

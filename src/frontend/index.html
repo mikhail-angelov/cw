@@ -6,6 +6,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'; connect-src 'none'">
   <title>CW Wallet</title>
   <link rel="stylesheet" href="style.css">
+  <script src="model.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
@@ -186,6 +187,6 @@
   </dialog>
 
   <dialog id="payment-password-dialog" aria-labelledby="payment-dialog-title"><form id="payment-password-form" autocomplete="off"><p class="eyebrow" data-i18n="confirmPayment">ПОДТВЕРЖДЕНИЕ ПЛАТЕЖА</p><h2 id="payment-dialog-title" data-i18n="enterPassword">Введите пароль платежа</h2><p id="payment-dialog-summary" class="modal-summary"></p><label for="payment-password" data-i18n="manualPassword">Пароль вводится вручную каждый раз</label><input id="payment-password" type="password" autocomplete="off" spellcheck="false" required><p id="payment-password-error" class="field-error" role="alert"></p><p id="payment-busy" class="dialog-busy" hidden></p><div class="modal-actions"><button id="cancel-payment" type="button" class="secondary" data-i18n="cancel">Отмена</button><button id="confirm-payment-button" type="submit" data-i18n="checkFee">Проверить комиссию</button></div></form></dialog>
-  <dialog id="secret-dialog" aria-labelledby="secret-dialog-title"><form id="secret-form" autocomplete="off"><h2 id="secret-dialog-title" data-i18n="copySecret">Копировать приватный ключ</h2><p class="safety-note" data-i18n="secretWarning">Любой, у кого есть ключ, может потратить все средства. Буфер обмена может синхронизироваться с другими устройствами.</p><label for="secret-password" data-i18n="enterPassword">Введите пароль платежа</label><input id="secret-password" type="password" autocomplete="off" spellcheck="false" required><p id="secret-error" class="field-error" role="alert"></p><div class="modal-actions"><button id="cancel-secret" type="button" class="secondary" data-i18n="cancel">Отмена</button><button id="confirm-secret" type="submit" data-i18n="copySecret">Копировать приватный ключ</button></div></form></dialog>
+  <dialog id="secret-dialog" aria-labelledby="secret-dialog-title"><form id="secret-form" autocomplete="off"><h2 id="secret-dialog-title" data-i18n="copySecret">Копировать приватный ключ</h2><p class="safety-note" data-i18n="secretWarning">Любой, у кого есть ключ, может потратить все средства. Буфер обмена может синхронизироваться с другими устройствами.</p><label for="secret-password" data-i18n="enterPassword">Введите пароль платежа</label><input id="secret-password" type="password" autocomplete="off" spellcheck="false" required><p id="secret-error" class="field-error" role="alert"></p><p id="secret-busy" class="dialog-busy" role="status" hidden></p><div class="modal-actions"><button id="cancel-secret" type="button" class="secondary" data-i18n="cancel">Отмена</button><button id="confirm-secret" type="submit" data-i18n="copySecret">Копировать приватный ключ</button></div></form></dialog>
 </body>
 </html>
